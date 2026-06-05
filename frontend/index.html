@@ -1264,7 +1264,18 @@ let state = {
   rankingType: 'general',
   phaseFilter: 'all',
   authMode: 'login',
-  editingMatches: new Set() // IDs de partidos en modo edición (Set para acceso O(1))
+  editingMatches: new Set(), // IDs de partidos en modo edición (Set para acceso O(1))
+  // Cache de datos cargados del backend (poblada en appBoot / loadAppData)
+  cache: {
+    predictions: {},     // { matchId: { home, away } }
+    officialResults: {}, // { matchId: { home, away } } — solo visible si admin las cargó en esta sesión
+    officialFinal: {},   // { champion, runnerUp }
+    finalPick: {},       // { champion, runnerUp }
+    leaderboard: [],     // [{ username, display_name, points, predicted_count, correct_exact, correct_result }]
+    deadlinesUtc: {},    // { phase: ISO UTC }
+    loaded: false
+  },
+  pendingTimers: {} // { key: timeoutId } para debounce
 };
 
 // =================================================================
@@ -1272,6 +1283,10 @@ let state = {
 // =================================================================
 // Devuelve un Date con el inicio del primer partido de la fase dada (en hora ARG / UTC-3)
 function phaseDeadline(phase) {
+  // Preferí siempre la deadline del backend (fuente de verdad)
+  const iso = state.cache.deadlinesUtc[phase];
+  if (iso) return new Date(iso);
+  // Fallback (antes de que la API responda): cálculo local
   const phMatches = FIXTURE.filter(m => m.phase === phase);
   if (phMatches.length === 0) return null;
   // Ordenar por fecha+hora y tomar el primero
@@ -1282,7 +1297,6 @@ function phaseDeadline(phase) {
   });
   const first = sorted[0];
   // Construir Date interpretando como hora ARG (UTC-3)
-  // Usamos el sufijo "-03:00" para que JavaScript lo parsee correctamente en cualquier zona horaria
   return new Date(`${first.date}T${first.time || '00:00'}:00-03:00`);
 }
 
@@ -1302,78 +1316,70 @@ function fmtDeadline(d) {
 }
 
 // =================================================================
-// AUTH
+// BACKEND API
 // =================================================================
-async function hashPassword(pwd) {
-  const enc = new TextEncoder().encode(pwd + 'prode2026_salt');
-  const buf = await crypto.subtle.digest('SHA-256', enc);
-  return Array.from(new Uint8Array(buf))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+const API_BASE = (
+  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+    ? 'http://localhost:8000'
+    : window.location.origin
+);
+
+function getToken() { return localStorage.getItem('prode_token'); }
+function setToken(t) { localStorage.setItem('prode_token', t); }
+function clearAuth() {
+  localStorage.removeItem('prode_token');
+  localStorage.removeItem('prode_user');
 }
 
-// =================================================================
-// STORAGE — usa window.storage si existe (artifact de Claude),
-// sino fallback a localStorage para que funcione en cualquier navegador
-// =================================================================
-const HAS_CLAUDE_STORAGE = (typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function');
-
-// Prefijo para localStorage, así no choca con otras apps en el mismo dominio
-const LS_PREFIX = 'prode2026::';
-
-function _lsKey(key, shared) {
-  // En modo localStorage, "shared" no aplica realmente (todo es del mismo navegador),
-  // pero igual respetamos un prefijo distinto para que se vea como en la API real
-  return LS_PREFIX + (shared ? 's::' : 'u::') + key;
-}
-
-async function storageGet(key, shared = false) {
-  if (HAS_CLAUDE_STORAGE) {
-    try {
-      const r = await window.storage.get(key, shared);
-      return r ? JSON.parse(r.value) : null;
-    } catch (e) { return null; }
-  }
-  // Fallback localStorage
+async function apiFetch(endpoint, options = {}) {
+  const token = getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` }),
+    ...(options.headers || {})
+  };
+  let response;
   try {
-    const raw = localStorage.getItem(_lsKey(key, shared));
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) { return null; }
-}
-
-async function storageSet(key, val, shared = false) {
-  if (HAS_CLAUDE_STORAGE) {
-    try { await window.storage.set(key, JSON.stringify(val), shared); return true; }
-    catch (e) { return false; }
-  }
-  // Fallback localStorage
-  try {
-    localStorage.setItem(_lsKey(key, shared), JSON.stringify(val));
-    return true;
+    response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
   } catch (e) {
-    console.error('localStorage.setItem falló:', e);
-    return false;
+    const err = new Error('No se pudo conectar al servidor');
+    err.status = 0;
+    throw err;
   }
+
+  if (response.status === 401) {
+    clearAuth();
+    location.reload();
+    return;
+  }
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(data.detail || `Error ${response.status}`);
+    error.status = response.status;
+    error.data = data;
+    throw error;
+  }
+  return data;
 }
 
-async function storageList(prefix, shared = false) {
-  if (HAS_CLAUDE_STORAGE) {
-    try { const r = await window.storage.list(prefix, shared); return r ? r.keys : []; }
-    catch (e) { return []; }
-  }
-  // Fallback localStorage: enumerar keys
-  try {
-    const realPrefix = _lsKey(prefix, shared);
-    const out = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith(realPrefix)) {
-        // devolvemos la key SIN el prefijo de localStorage, tal como devolvería window.storage
-        out.push(k.substring(_lsKey('', shared).length));
-      }
-    }
-    return out;
-  } catch (e) { return []; }
+// Debounce sencillo por key
+function debounce(key, fn, ms = 500) {
+  if (state.pendingTimers[key]) clearTimeout(state.pendingTimers[key]);
+  state.pendingTimers[key] = setTimeout(() => {
+    delete state.pendingTimers[key];
+    fn();
+  }, ms);
+}
+
+function setButtonBusy(id, busyText) {
+  const btn = document.getElementById(id);
+  if (!btn) return null;
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = busyText;
+  return () => { btn.disabled = false; btn.textContent = original; };
 }
 
 // =================================================================
@@ -1401,13 +1407,14 @@ function calcPoints(prediction, official) {
 // =================================================================
 // VISTAS
 // =================================================================
-function toast(msg, type = 'success') {
+function showToast(message, type = 'success') {
   const el = document.getElementById('toast');
-  el.textContent = msg;
+  el.textContent = message;
   el.className = 'toast ' + (type === 'error' ? 'error' : '');
   setTimeout(() => el.classList.add('show'), 10);
-  setTimeout(() => el.classList.remove('show'), 2500);
+  setTimeout(() => el.classList.remove('show'), 4000);
 }
+function toast(msg, type = 'success') { showToast(msg, type); }
 
 function render() {
   const app = document.getElementById('app');
@@ -1449,55 +1456,18 @@ function renderAuth() {
           <input id="loginPwd" type="password" placeholder="••••••••" autocomplete="current-password">
         </div>
         <button class="btn-primary" id="btnLogin">⚽ Entrar al Prode</button>
-
-        <div class="test-divider">MODO PRUEBA</div>
-        <button class="btn-test" id="btnTestLogin">🧪 Ingresar como TEST (admin)</button>
       ` : `
         <div class="form-group">
-          <label>Usuario (mín. 3 caracteres)</label>
-          <input id="regUser" type="text" placeholder="ej: martin.g" autocomplete="username">
+          <label>Usuario (mín. 3 caracteres, sólo a-z 0-9 _)</label>
+          <input id="regUser" type="text" placeholder="ej: martin_g" autocomplete="username" maxlength="30">
         </div>
         <div class="form-group">
-          <label>DNI (sin puntos)</label>
-          <input id="regDni" type="text" inputmode="numeric" maxlength="8" placeholder="ej: 30123456" autocomplete="off">
+          <label>Nombre para mostrar</label>
+          <input id="regDisplay" type="text" placeholder="ej: Martín García" autocomplete="name" maxlength="100">
         </div>
         <div class="form-group">
-          <label>Email</label>
-          <input id="regEmail" type="email" placeholder="tu@correo.com" autocomplete="email">
-        </div>
-        <div class="form-group">
-          <label>Sector</label>
-          <input id="regSector" type="text" placeholder="ej: Producción, Mantenimiento, Logística..." autocomplete="organization-title" maxlength="50">
-        </div>
-        <div class="form-group">
-          <label>Contraseña (mín. 4 caracteres)</label>
+          <label>Contraseña (mín. 8 caracteres)</label>
           <input id="regPwd" type="password" placeholder="••••••••" autocomplete="new-password">
-        </div>
-        <div class="form-group">
-          <label>Lugar de trabajo</label>
-          <div class="workplace-picker">
-            <div class="workplace-option" data-wp="casanova">
-              <span class="emoji">🏭</span>
-              Isidro Casanova
-            </div>
-            <div class="workplace-option" data-wp="echeverria">
-              <span class="emoji">🏢</span>
-              Esteban Echeverría
-            </div>
-          </div>
-        </div>
-        <div class="form-group">
-          <label>Categoría</label>
-          <div class="category-picker">
-            <div class="category-option" data-cat="fc">
-              <span class="emoji">💼</span>
-              Fuera de Convenio
-            </div>
-            <div class="category-option" data-cat="pe">
-              <span class="emoji">🔧</span>
-              Personal Efectivo
-            </div>
-          </div>
         </div>
         <button class="btn-primary" id="btnReg">🎯 Crear Cuenta</button>
       `}
@@ -1512,26 +1482,9 @@ function bindAuth() {
   if (state.authMode === 'login') {
     document.getElementById('btnLogin').onclick = handleLogin;
     document.getElementById('loginPwd').onkeydown = (e) => { if (e.key === 'Enter') handleLogin(); };
-    const btnTest = document.getElementById('btnTestLogin');
-    if (btnTest) btnTest.onclick = handleTestLogin;
   } else {
-    let selectedCat = null;
-    let selectedWp = null;
-    document.querySelectorAll('.category-option').forEach(opt => {
-      opt.onclick = () => {
-        document.querySelectorAll('.category-option').forEach(o => o.classList.remove('selected'));
-        opt.classList.add('selected');
-        selectedCat = opt.dataset.cat;
-      };
-    });
-    document.querySelectorAll('.workplace-option').forEach(opt => {
-      opt.onclick = () => {
-        document.querySelectorAll('.workplace-option').forEach(o => o.classList.remove('selected'));
-        opt.classList.add('selected');
-        selectedWp = opt.dataset.wp;
-      };
-    });
-    document.getElementById('btnReg').onclick = () => handleRegister(selectedCat, selectedWp);
+    document.getElementById('btnReg').onclick = handleRegister;
+    document.getElementById('regPwd').onkeydown = (e) => { if (e.key === 'Enter') handleRegister(); };
   }
 }
 
@@ -1541,93 +1494,94 @@ function showAlert(msg, type = 'error') {
 }
 
 async function handleLogin() {
-  const user = document.getElementById('loginUser').value.trim().toLowerCase();
+  const username = document.getElementById('loginUser').value.trim().toLowerCase();
   const pwd = document.getElementById('loginPwd').value;
-  if (!user || !pwd) { showAlert('Completá usuario y contraseña'); return; }
-  const userData = await storageGet('user:' + user, true);
-  if (!userData) { showAlert('Usuario no encontrado'); return; }
-  const pwdHash = await hashPassword(pwd);
-  if (userData.pwdHash !== pwdHash) { showAlert('Contraseña incorrecta'); return; }
-  state.currentUser = {
-    username: user,
-    category: userData.category,
-    workplace: userData.workplace || null,
-    sector: userData.sector || null,
-    dni: userData.dni || null,
-    email: userData.email || null
-  };
-  state.view = 'fixture';
-  toast('¡Bienvenido, ' + user + '!');
-  render();
-}
-
-// ===== LOGIN DE PRUEBA: entra directo como admin sin password =====
-async function handleTestLogin() {
-  // Aseguramos que exista un user "admin" para probar el panel admin
-  const existing = await storageGet('user:admin', true);
-  if (!existing) {
-    const pwdHash = await hashPassword('admin');
-    await storageSet('user:admin', {
-      pwdHash,
-      category: 'fc',
-      workplace: 'casanova',
-      sector: 'Administración',
-      dni: '00000000',
-      email: 'test@prode.local',
-      createdAt: Date.now()
-    }, true);
+  if (!username || !pwd) { showAlert('Completá usuario y contraseña'); return; }
+  const reset = setButtonBusy('btnLogin', 'Ingresando...');
+  try {
+    const res = await apiFetch('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password: pwd })
+    });
+    setToken(res.access_token);
+    localStorage.setItem('prode_user', JSON.stringify(res.user));
+    state.currentUser = res.user;
+    state.view = 'fixture';
+    await loadAppData();
+    showToast('¡Bienvenido, ' + (res.user.display_name || res.user.username) + '!');
+    render();
+  } catch (e) {
+    showAlert(e.message || 'Error al ingresar');
+  } finally {
+    if (reset) reset();
   }
-  state.currentUser = {
-    username: 'admin',
-    category: existing?.category || 'fc',
-    workplace: existing?.workplace || 'casanova',
-    sector: existing?.sector || 'Administración',
-    dni: existing?.dni || '00000000',
-    email: existing?.email || 'test@prode.local'
-  };
-  state.view = 'fixture';
-  toast('🧪 Modo TEST: ingresaste como admin');
-  render();
 }
 
-async function handleRegister(category, workplace) {
-  const user = document.getElementById('regUser').value.trim().toLowerCase();
-  const dni = document.getElementById('regDni').value.trim();
-  const email = document.getElementById('regEmail').value.trim().toLowerCase();
-  const sector = document.getElementById('regSector').value.trim();
+async function handleRegister() {
+  const username = document.getElementById('regUser').value.trim().toLowerCase();
+  const displayName = document.getElementById('regDisplay').value.trim();
   const pwd = document.getElementById('regPwd').value;
 
-  if (!user || user.length < 3) { showAlert('El usuario debe tener al menos 3 caracteres'); return; }
-  if (!/^[a-z0-9._-]+$/.test(user)) { showAlert('Solo letras minúsculas, números, punto, guión o guión bajo'); return; }
-  if (!dni || !/^\d{7,8}$/.test(dni)) { showAlert('El DNI debe tener 7 u 8 dígitos, sin puntos'); return; }
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Email inválido'); return; }
-  if (!sector || sector.length < 2) { showAlert('Completá tu sector'); return; }
-  if (!pwd || pwd.length < 4) { showAlert('La contraseña debe tener al menos 4 caracteres'); return; }
-  if (!workplace) { showAlert('Elegí tu lugar de trabajo'); return; }
-  if (!category) { showAlert('Elegí una categoría'); return; }
+  if (!username || !/^[a-z0-9_]{3,30}$/.test(username)) {
+    showAlert('Usuario inválido: a-z, 0-9 y _, entre 3 y 30 caracteres'); return;
+  }
+  if (!displayName) { showAlert('Ingresá un nombre para mostrar'); return; }
+  if (!pwd || pwd.length < 8) { showAlert('La contraseña debe tener al menos 8 caracteres'); return; }
 
-  const existing = await storageGet('user:' + user, true);
-  if (existing) { showAlert('Ese usuario ya existe, probá otro'); return; }
+  const reset = setButtonBusy('btnReg', 'Creando cuenta...');
+  try {
+    const res = await apiFetch('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password: pwd, display_name: displayName })
+    });
+    setToken(res.access_token);
+    localStorage.setItem('prode_user', JSON.stringify(res.user));
+    state.currentUser = res.user;
+    state.view = 'fixture';
+    await loadAppData();
+    showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
+    render();
+  } catch (e) {
+    showAlert(e.message || 'Error al registrar');
+  } finally {
+    if (reset) reset();
+  }
+}
 
-  const pwdHash = await hashPassword(pwd);
-  const ok = await storageSet('user:' + user, {
-    pwdHash, category, workplace, sector, dni, email,
-    createdAt: Date.now()
-  }, true);
-  if (!ok) { showAlert('Error al crear la cuenta (storage no disponible)'); return; }
-  state.currentUser = { username: user, category, workplace, sector, dni, email };
-  state.view = 'fixture';
-  toast('¡Cuenta creada! Bienvenido ' + user);
-  render();
+async function loadAppData() {
+  try {
+    const [fixturesData, predictions, finalPick, leaderboard] = await Promise.all([
+      apiFetch('/api/fixtures'),
+      apiFetch('/api/predictions/me'),
+      apiFetch('/api/final-pick/me'),
+      apiFetch('/api/leaderboard')
+    ]);
+    state.cache.deadlinesUtc = (fixturesData && fixturesData.deadlines_utc) || {};
+
+    const predMap = {};
+    (predictions || []).forEach(p => {
+      predMap[p.match_id] = { home: p.home_score, away: p.away_score };
+    });
+    state.cache.predictions = predMap;
+
+    state.cache.finalPick = finalPick
+      ? { champion: finalPick.champion, runnerUp: finalPick.runner_up }
+      : {};
+    state.cache.leaderboard = leaderboard || [];
+    state.cache.loaded = true;
+  } catch (e) {
+    showToast('Error cargando datos: ' + (e.message || ''), 'error');
+  }
+}
+
+async function refreshLeaderboard() {
+  try { state.cache.leaderboard = await apiFetch('/api/leaderboard') || []; }
+  catch (e) { /* no romper UI */ }
 }
 
 function renderApp() {
   const u = state.currentUser;
-  const isAdmin = u.username === 'admin';
-  const catEmoji = u.category === 'fc' ? '💼' : '🔧';
-  const wpLabel = u.workplace === 'casanova' ? '🏭 I. Casanova'
-                 : u.workplace === 'echeverria' ? '🏢 E. Echeverría'
-                 : '';
+  const isAdmin = !!u.is_admin;
 
   return `
   <div class="header">
@@ -1643,8 +1597,8 @@ function renderApp() {
         <img src="${GG_LOGO}" class="logo-gg" alt="Grupo Gestión">
       </div>
       <div class="user-info">
-        <span class="user-badge">${catEmoji} ${u.username}</span>
-        ${wpLabel ? `<span class="workplace-badge">${wpLabel}</span>` : ''}
+        <span class="user-badge">👤 ${u.display_name || u.username}</span>
+        ${isAdmin ? '<span class="workplace-badge">⚙️ Admin</span>' : ''}
         <button class="btn-logout" id="btnLogout">Salir</button>
       </div>
     </div>
@@ -1663,7 +1617,12 @@ function renderApp() {
 
 async function bindApp() {
   document.getElementById('btnLogout').onclick = () => {
-    state.currentUser = null; state.view = 'login'; state.authMode = 'login'; render();
+    clearAuth();
+    state.currentUser = null;
+    state.view = 'login';
+    state.authMode = 'login';
+    state.cache = { predictions: {}, officialResults: {}, officialFinal: {}, finalPick: {}, leaderboard: [], deadlinesUtc: {}, loaded: false };
+    render();
   };
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => { state.view = t.dataset.view; renderContent(); };
@@ -1677,11 +1636,19 @@ async function renderContent() {
     t.classList.toggle('active', t.dataset.view === state.view);
   });
 
-  if (state.view === 'fixture') c.innerHTML = await renderFixture();
-  else if (state.view === 'campeon') c.innerHTML = await renderCampeon();
-  else if (state.view === 'ranking') c.innerHTML = await renderRanking();
+  if (!state.cache.loaded) {
+    c.innerHTML = '<div class="empty-state"><span class="icon">⏳</span>Cargando datos...</div>';
+    return;
+  }
+
+  // Refrescar leaderboard al entrar al ranking (la cache del backend dura 30s igual)
+  if (state.view === 'ranking') await refreshLeaderboard();
+
+  if (state.view === 'fixture') c.innerHTML = renderFixture();
+  else if (state.view === 'campeon') c.innerHTML = renderCampeon();
+  else if (state.view === 'ranking') c.innerHTML = renderRanking();
   else if (state.view === 'reglas') c.innerHTML = renderReglas();
-  else if (state.view === 'admin') c.innerHTML = await renderAdmin();
+  else if (state.view === 'admin') c.innerHTML = renderAdmin();
 
   bindContent();
 }
@@ -1689,20 +1656,14 @@ async function renderContent() {
 // =================================================================
 // FIXTURE
 // =================================================================
-async function renderFixture() {
+function renderFixture() {
   const u = state.currentUser;
-  const predictions = await storageGet('predictions:' + u.username, true) || {};
-  const officialResults = await storageGet('official_results', true) || {};
-  const officialFinal = await storageGet('official_final', true) || {};
-  const myFinalPick = await storageGet('final_pick:' + u.username, true) || {};
+  const predictions = state.cache.predictions;
+  const officialResults = state.cache.officialResults;
 
-  let myPoints = 0;
-  for (const matchId in officialResults) {
-    if (predictions[matchId]) myPoints += calcPoints(predictions[matchId], officialResults[matchId]);
-  }
-  // Sumar puntos del campeón/subcampeón si ya hay resultado oficial
-  if (officialFinal.champion && myFinalPick.champion === officialFinal.champion) myPoints += PTS_CAMPEON;
-  if (officialFinal.runnerUp && myFinalPick.runnerUp === officialFinal.runnerUp) myPoints += PTS_SUBCAMPEON;
+  // Puntos: el backend manda el total en /api/leaderboard
+  const myRow = (state.cache.leaderboard || []).find(r => r.username === u.username);
+  const myPoints = myRow ? myRow.points : 0;
 
   const totalMatches = FIXTURE.length;
   const predicted = Object.keys(predictions).length;
@@ -1917,15 +1878,14 @@ function renderMatch(m, predictions, officialResults) {
 // =================================================================
 // CAMPEÓN / SUBCAMPEÓN
 // =================================================================
-async function renderCampeon() {
-  const u = state.currentUser;
-  const myPick = await storageGet('final_pick:' + u.username, true) || {};
-  const officialFinal = await storageGet('official_final', true) || {};
+function renderCampeon() {
+  const myPick = state.cache.finalPick || {};
+  const officialFinal = state.cache.officialFinal || {};
 
   // Cerrado por resultado oficial cargado por admin
   const lockedByAdmin = !!(officialFinal.champion || officialFinal.runnerUp);
-  // Cerrado por tiempo: cuando empieza el primer partido del Mundial (fase grupos)
-  const lockedByTime = isPhaseLocked('grupos');
+  // Cerrado por tiempo: el backend usa el inicio de semifinales como deadline del final pick
+  const lockedByTime = isPhaseLocked('semis');
   const locked = lockedByAdmin || lockedByTime;
   // ¿Está en modo edición? — usamos la misma key 'final' en editingMatches
   const isEditing = state.editingMatches.has('final');
@@ -1986,10 +1946,10 @@ async function renderCampeon() {
   let stateBanner = '';
   if (lockedByTime && !lockedByAdmin) {
     stateBanner = `<div class="phase-locked-banner">
-      🔒 <span><strong>Elección cerrada:</strong> el Mundial ya comenzó. Tu pronóstico quedó fijo.</span>
+      🔒 <span><strong>Elección cerrada:</strong> empezaron las semifinales.</span>
     </div>`;
   } else if (!locked) {
-    const dl = phaseDeadline('grupos');
+    const dl = phaseDeadline('semis');
     stateBanner = `<div class="champion-info-banner">
       🎯 <span>Elegí tu <strong>Campeón (+${PTS_CAMPEON} pts)</strong> y <strong>Subcampeón (+${PTS_SUBCAMPEON} pts)</strong>. ${dl ? `Cierra el <strong>${fmtDeadline(dl)}</strong>` : ''}.</span>
     </div>`;
@@ -2056,88 +2016,45 @@ async function renderCampeon() {
 }
 
 async function saveFinalPick() {
-  const u = state.currentUser;
-  // Verificación de bloqueo por tiempo
-  if (isPhaseLocked('grupos')) {
-    toast('El Mundial ya comenzó, no podés modificar', 'error');
+  if (isPhaseLocked('semis')) {
+    showToast('Las semifinales ya empezaron, no podés modificar', 'error');
     state.editingMatches.delete('final');
     renderContent();
     return;
   }
   const selChamp = document.getElementById('selectChampion');
   const selRun = document.getElementById('selectRunnerUp');
-  if (!selChamp || !selRun) { toast('Error: faltan campos', 'error'); return; }
+  if (!selChamp || !selRun) { showToast('Error: faltan campos', 'error'); return; }
   const champion = selChamp.value;
   const runnerUp = selRun.value;
+  if (!champion || !runnerUp) { showToast('Elegí campeón y subcampeón', 'error'); return; }
+  if (champion === runnerUp) { showToast('Campeón y subcampeón deben ser distintos', 'error'); return; }
 
-  if (!champion && !runnerUp) { toast('Elegí al menos un equipo', 'error'); return; }
-  if (champion && runnerUp && champion === runnerUp) {
-    toast('Campeón y subcampeón deben ser distintos', 'error'); return;
+  const reset = setButtonBusy('btnSaveFinal', 'Guardando...');
+  try {
+    const res = await apiFetch('/api/final-pick', {
+      method: 'PUT',
+      body: JSON.stringify({ champion, runner_up: runnerUp })
+    });
+    state.cache.finalPick = { champion: res.champion, runnerUp: res.runner_up };
+    state.editingMatches.delete('final');
+    await refreshLeaderboard();
+    showToast('Elección guardada ✓');
+    renderContent();
+  } catch (e) {
+    showToast(e.message || 'Error al guardar', 'error');
+  } finally {
+    if (reset) reset();
   }
-
-  const ok = await storageSet('final_pick:' + u.username, { champion, runnerUp }, true);
-  if (!ok) { toast('Error al guardar (storage no disponible)', 'error'); return; }
-  // Salir del modo edición
-  state.editingMatches.delete('final');
-  toast('Elección guardada ✓');
-  renderContent();
 }
 
 // =================================================================
-// RANKING
+// RANKING (servido completo por el backend, ya ordenado)
 // =================================================================
-async function renderRanking() {
-  const userKeys = await storageList('user:', true);
-  const officialResults = await storageGet('official_results', true) || {};
-  const officialFinal = await storageGet('official_final', true) || {};
-
-  const users = [];
-  for (const k of userKeys) {
-    const uname = k.replace('user:', '');
-    const udata = await storageGet(k, true);
-    if (!udata) continue;
-    const preds = await storageGet('predictions:' + uname, true) || {};
-    const finalPick = await storageGet('final_pick:' + uname, true) || {};
-    let pts = 0, hits = 0, exact = 0;
-    for (const mid in officialResults) {
-      if (preds[mid]) {
-        const p = calcPoints(preds[mid], officialResults[mid]);
-        pts += p;
-        if (p > 0) hits++;
-        if (p === 5) exact++;
-      }
-    }
-    let bonusPts = 0;
-    if (officialFinal.champion && finalPick.champion === officialFinal.champion) bonusPts += PTS_CAMPEON;
-    if (officialFinal.runnerUp && finalPick.runnerUp === officialFinal.runnerUp) bonusPts += PTS_SUBCAMPEON;
-    pts += bonusPts;
-    users.push({
-      username: uname,
-      category: udata.category,
-      workplace: udata.workplace || null,
-      sector: udata.sector || null,
-      points: pts,
-      hits,
-      exact,
-      bonusPts
-    });
-  }
-
-  // Filtros: general | fc | pe | casanova | echeverria
-  let filtered = [...users];
-  if (state.rankingType === 'fc') filtered = users.filter(u => u.category === 'fc');
-  else if (state.rankingType === 'pe') filtered = users.filter(u => u.category === 'pe');
-  else if (state.rankingType === 'casanova') filtered = users.filter(u => u.workplace === 'casanova');
-  else if (state.rankingType === 'echeverria') filtered = users.filter(u => u.workplace === 'echeverria');
-
-  filtered.sort((a, b) => b.points - a.points || b.exact - a.exact || b.hits - a.hits);
-
-  // Helpers para labels
-  const catLabel = (c) => c === 'fc' ? 'Fuera de Convenio' : (c === 'pe' ? 'Personal Efectivo' : '—');
-  const catShort = (c) => c === 'fc' ? 'F. Convenio' : (c === 'pe' ? 'P. Efectivo' : '—');
-  const wpLabel = (w) => w === 'casanova' ? '🏭 I. Casanova' : (w === 'echeverria' ? '🏢 E. Echeverría' : '');
-
-  const podio = filtered.slice(0, 3);
+function renderRanking() {
+  const me = state.currentUser.username;
+  const sorted = (state.cache.leaderboard || []).slice();
+  const podio = sorted.slice(0, 3);
 
   let podioHtml = '';
   if (podio.length > 0) {
@@ -2151,10 +2068,9 @@ async function renderRanking() {
       else {
         podioHtml += `<div class="podium-spot ${order[i]}">
           <span class="podium-medal">${medals[i]}</span>
-          <div class="podium-name">${u.username}</div>
+          <div class="podium-name">${u.display_name || u.username}</div>
           <div class="podium-points">${u.points}</div>
-          <div class="podium-cat">${catLabel(u.category)}</div>
-          ${u.workplace ? `<div class="podium-wp">${wpLabel(u.workplace)}</div>` : ''}
+          <div class="podium-cat">${u.correct_exact} exactos · ${u.correct_result} resultado</div>
         </div>`;
       }
     }
@@ -2162,23 +2078,21 @@ async function renderRanking() {
   }
 
   let listHtml = '';
-  if (filtered.length === 0) {
-    listHtml = '<div class="empty-state"><span class="icon">📊</span>Todavía no hay participantes en este ranking.</div>';
+  if (sorted.length === 0) {
+    listHtml = '<div class="empty-state"><span class="icon">📊</span>Todavía no hay participantes en el ranking.</div>';
   } else {
     listHtml = '<div class="ranking-list">';
-    filtered.forEach((u, i) => {
-      const me = u.username === state.currentUser.username;
-      const catCls = u.category === 'fc' ? 'fc' : 'pe';
-      const tags = [];
-      tags.push(`<span class="ranking-cat-tag ${catCls}">${catShort(u.category)}</span>`);
-      if (u.workplace) {
-        tags.push(`<span class="ranking-cat-tag wp">${wpLabel(u.workplace)}</span>`);
-      }
-      listHtml += `<div class="ranking-row ${me ? 'me' : ''}">
+    sorted.forEach((u, i) => {
+      const isMe = u.username === me;
+      const tags = [
+        `<span class="ranking-cat-tag fc">${u.correct_exact} exactos</span>`,
+        `<span class="ranking-cat-tag pe">${u.correct_result} resultado</span>`
+      ];
+      listHtml += `<div class="ranking-row ${isMe ? 'me' : ''}">
         <div class="ranking-pos">#${i + 1}</div>
         <div class="ranking-user">
-          <div class="ranking-username">${u.username} ${me ? '👈' : ''} ${u.bonusPts > 0 ? `<span style="color:var(--dorado);font-size:11px;">🏆 +${u.bonusPts}</span>` : ''}</div>
-          ${u.sector ? `<div class="ranking-sector">${u.sector}</div>` : ''}
+          <div class="ranking-username">${u.display_name || u.username} ${isMe ? '👈' : ''}</div>
+          <div class="ranking-sector">${u.predicted_count} pronósticos cargados</div>
         </div>
         <div class="ranking-tags">${tags.join('')}</div>
         <div class="ranking-pts">${u.points}</div>
@@ -2187,24 +2101,9 @@ async function renderRanking() {
     listHtml += '</div>';
   }
 
-  // Contador de participantes por filtro (útil al ojo)
-  const counts = {
-    general: users.length,
-    fc: users.filter(u => u.category === 'fc').length,
-    pe: users.filter(u => u.category === 'pe').length,
-    casanova: users.filter(u => u.workplace === 'casanova').length,
-    echeverria: users.filter(u => u.workplace === 'echeverria').length
-  };
-
   return `
   <div class="ranking-tabs">
-    <button class="ranking-tab ${state.rankingType === 'general' ? 'active' : ''}" data-type="general">🌍 General <small>(${counts.general})</small></button>
-    <button class="ranking-tab ${state.rankingType === 'fc' ? 'active' : ''}" data-type="fc">💼 F. Convenio <small>(${counts.fc})</small></button>
-    <button class="ranking-tab ${state.rankingType === 'pe' ? 'active' : ''}" data-type="pe">🔧 P. Efectivo <small>(${counts.pe})</small></button>
-  </div>
-  <div class="ranking-tabs" style="margin-top:-12px;">
-    <button class="ranking-tab ${state.rankingType === 'casanova' ? 'active' : ''}" data-type="casanova">🏭 I. Casanova <small>(${counts.casanova})</small></button>
-    <button class="ranking-tab ${state.rankingType === 'echeverria' ? 'active' : ''}" data-type="echeverria">🏢 E. Echeverría <small>(${counts.echeverria})</small></button>
+    <button class="ranking-tab active" data-type="general">🌍 Ranking General <small>(${sorted.length})</small></button>
   </div>
   ${podioHtml}
   ${listHtml}`;
@@ -2287,9 +2186,9 @@ function renderReglas() {
 // =================================================================
 // ADMIN
 // =================================================================
-async function renderAdmin() {
-  const officialResults = await storageGet('official_results', true) || {};
-  const officialFinal = await storageGet('official_final', true) || {};
+function renderAdmin() {
+  const officialResults = state.cache.officialResults || {};
+  const officialFinal = state.cache.officialFinal || {};
 
   const teamList = Object.keys(TEAMS).sort((a, b) => TEAMS[a].name.localeCompare(TEAMS[b].name));
   const teamOpts = (sel) => teamList.map(c =>
@@ -2297,7 +2196,8 @@ async function renderAdmin() {
   ).join('');
 
   let html = `<div class="admin-banner">
-    <strong>⚙️ Panel de Administrador.</strong> Acá cargás los resultados oficiales. Una vez guardado, se cierran los pronósticos de ese partido y se calculan los puntos.
+    <strong>⚙️ Panel de Administrador.</strong> Acá cargás los resultados oficiales. Una vez guardado, se cierran los pronósticos de ese partido y el ranking suma los puntos.
+    <br><small style="opacity:0.8;">El backend no expone GET de resultados, así que los inputs arrancan vacíos en cada carga; lo que cargues durante la sesión queda visible hasta refrescar.</small>
   </div>
 
   <div class="champion-card">
@@ -2376,7 +2276,10 @@ async function renderAdmin() {
         </div>
         <div class="match-footer">
           <span></span>
-          ${homeT && awayT ? `<button class="btn-save" data-admin-save="${m.id}">${off.home != null ? '✓ Actualizar' : 'Cargar Resultado'}</button>` : ''}
+          <div style="display:flex;gap:6px;align-items:center;">
+            ${off.home != null ? `<button class="btn-cancel" data-admin-delete="${m.id}">Borrar</button>` : ''}
+            ${homeT && awayT ? `<button class="btn-save" data-admin-save="${m.id}">${off.home != null ? '✓ Actualizar' : 'Cargar Resultado'}</button>` : ''}
+          </div>
         </div>
       </div>`;
     }
@@ -2388,53 +2291,108 @@ async function renderAdmin() {
 async function saveOfficialFinal() {
   const champion = document.getElementById('adminChampion').value;
   const runnerUp = document.getElementById('adminRunnerUp').value;
-  if (champion && runnerUp && champion === runnerUp) {
-    toast('Campeón y subcampeón deben ser distintos', 'error'); return;
+  if (!champion || !runnerUp) { showToast('Elegí campeón y subcampeón', 'error'); return; }
+  if (champion === runnerUp) { showToast('Campeón y subcampeón deben ser distintos', 'error'); return; }
+  const reset = setButtonBusy('btnSaveFinalOfficial', 'Guardando...');
+  try {
+    const res = await apiFetch('/api/admin/final', {
+      method: 'POST',
+      body: JSON.stringify({ champion, runner_up: runnerUp })
+    });
+    state.cache.officialFinal = { champion: res.champion, runnerUp: res.runner_up };
+    await refreshLeaderboard();
+    showToast('Resultado final oficial guardado ✓');
+    renderContent();
+  } catch (e) {
+    showToast(e.message || 'Error al guardar', 'error');
+  } finally {
+    if (reset) reset();
   }
-  await storageSet('official_final', { champion, runnerUp }, true);
-  toast('Resultado final oficial guardado ✓');
-  renderContent();
 }
 
 async function saveOfficialResult(matchId) {
   const homeInp = document.querySelector(`input[data-admin-id="${matchId}"][data-side="home"]`);
   const awayInp = document.querySelector(`input[data-admin-id="${matchId}"][data-side="away"]`);
   const home = homeInp.value, away = awayInp.value;
-  if (home === '' || away === '') { toast('Completá ambos goles', 'error'); return; }
-  const off = await storageGet('official_results', true) || {};
-  off[matchId] = { home: parseInt(home), away: parseInt(away) };
-  await storageSet('official_results', off, true);
-  toast('Resultado oficial cargado ✓');
-  renderContent();
+  if (home === '' || away === '') { showToast('Completá ambos goles', 'error'); return; }
+  try {
+    const res = await apiFetch(`/api/admin/result/${encodeURIComponent(matchId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ home_score: parseInt(home), away_score: parseInt(away) })
+    });
+    state.cache.officialResults[matchId] = { home: res.home_score, away: res.away_score };
+    await refreshLeaderboard();
+    showToast('Resultado oficial cargado ✓');
+    renderContent();
+  } catch (e) {
+    showToast(e.message || 'Error al guardar', 'error');
+  }
 }
 
-async function savePrediction(matchId) {
-  const u = state.currentUser;
-  // Verificación de seguridad server-side: si la fase ya cerró, rechazar
+async function deleteOfficialResult(matchId) {
+  try {
+    await apiFetch(`/api/admin/result/${encodeURIComponent(matchId)}`, { method: 'DELETE' });
+    delete state.cache.officialResults[matchId];
+    await refreshLeaderboard();
+    showToast('Resultado borrado ✓');
+    renderContent();
+  } catch (e) {
+    showToast(e.message || 'Error al borrar', 'error');
+  }
+}
+
+async function savePrediction(matchId, opts = {}) {
   const match = FIXTURE.find(m => m.id === matchId);
   if (match && isPhaseLocked(match.phase)) {
-    toast('La fase ya está cerrada, no podés modificar', 'error');
+    showToast('La fase ya está cerrada, no podés modificar', 'error');
     state.editingMatches.delete(matchId);
     renderContent();
     return;
   }
   const homeInp = document.querySelector(`input[data-id="${matchId}"][data-side="home"]`);
   const awayInp = document.querySelector(`input[data-id="${matchId}"][data-side="away"]`);
-  if (!homeInp || !awayInp) { toast('Error: no se encuentran los campos', 'error'); return; }
+  if (!homeInp || !awayInp) return;
   const home = homeInp.value, away = awayInp.value;
-  if (home === '' || away === '') { toast('Cargá ambos goles', 'error'); return; }
-  if (home < 0 || away < 0) { toast('No se aceptan goles negativos', 'error'); return; }
-  const predictions = await storageGet('predictions:' + u.username, true) || {};
-  predictions[matchId] = { home: parseInt(home), away: parseInt(away) };
-  const ok = await storageSet('predictions:' + u.username, predictions, true);
-  if (!ok) {
-    toast('Error al guardar (storage no disponible)', 'error');
-    return; // NO limpiamos editing ni re-renderizamos, dejamos al usuario reintentar
+  if (home === '' || away === '') {
+    if (!opts.silent) showToast('Cargá ambos goles', 'error');
+    return;
   }
-  // Salir del modo edición y bloquear la card
-  state.editingMatches.delete(matchId);
-  toast('Pronóstico guardado ✓');
-  renderContent();
+  const homeN = parseInt(home), awayN = parseInt(away);
+  if (homeN < 0 || awayN < 0 || homeN > 20 || awayN > 20) {
+    if (!opts.silent) showToast('Goles entre 0 y 20', 'error');
+    return;
+  }
+
+  const card = document.querySelector(`[data-match-id="${matchId}"]`);
+  if (card) card.dataset.saving = '1';
+
+  try {
+    const res = await apiFetch(`/api/predictions/${encodeURIComponent(matchId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ home_score: homeN, away_score: awayN })
+    });
+    state.cache.predictions[matchId] = { home: res.home_score, away: res.away_score };
+    if (!opts.silent) {
+      state.editingMatches.delete(matchId);
+      showToast('Pronóstico guardado ✓');
+      renderContent();
+    } else {
+      // En auto-save (debounce) no re-renderizo para no romper el foco del input
+      if (card) card.dataset.saving = '0';
+    }
+  } catch (e) {
+    if (e.status === 403) {
+      showToast(e.message || 'La fase ya cerró', 'error');
+      const prev = state.cache.predictions[matchId];
+      if (prev) { homeInp.value = prev.home; awayInp.value = prev.away; }
+      else { homeInp.value = ''; awayInp.value = ''; }
+      renderContent();
+    } else {
+      showToast(e.message || 'Error al guardar', 'error');
+    }
+  } finally {
+    if (card) card.dataset.saving = '0';
+  }
 }
 
 function bindContent() {
@@ -2444,20 +2402,18 @@ function bindContent() {
   document.querySelectorAll('[data-save]').forEach(btn => {
     btn.onclick = () => savePrediction(btn.dataset.save);
   });
-  // Botón "Modificar": pone el partido en modo edición
   document.querySelectorAll('[data-modify]').forEach(btn => {
     btn.onclick = () => {
       const id = btn.dataset.modify;
       const match = FIXTURE.find(m => m.id === id);
       if (match && isPhaseLocked(match.phase)) {
-        toast('La fase ya está cerrada', 'error');
+        showToast('La fase ya está cerrada', 'error');
         return;
       }
       state.editingMatches.add(id);
       renderContent();
     };
   });
-  // Botón "Cancelar": vuelve al modo bloqueado sin guardar
   document.querySelectorAll('[data-cancel]').forEach(btn => {
     btn.onclick = () => {
       state.editingMatches.delete(btn.dataset.cancel);
@@ -2470,11 +2426,23 @@ function bindContent() {
   document.querySelectorAll('[data-admin-save]').forEach(btn => {
     btn.onclick = () => saveOfficialResult(btn.dataset.adminSave);
   });
+  document.querySelectorAll('[data-admin-delete]').forEach(btn => {
+    btn.onclick = () => deleteOfficialResult(btn.dataset.adminDelete);
+  });
+
+  // Auto-save debounced de predicciones al tipear en los inputs
+  document.querySelectorAll('input.score-input[data-id]').forEach(input => {
+    input.addEventListener('input', () => {
+      const id = input.dataset.id;
+      debounce('pred:' + id, () => savePrediction(id, { silent: true }), 500);
+    });
+  });
+
   const btnSaveFinal = document.getElementById('btnSaveFinal');
   if (btnSaveFinal) btnSaveFinal.onclick = saveFinalPick;
   const btnModifyFinal = document.getElementById('btnModifyFinal');
   if (btnModifyFinal) btnModifyFinal.onclick = () => {
-    if (isPhaseLocked('grupos')) { toast('El Mundial ya comenzó', 'error'); return; }
+    if (isPhaseLocked('semis')) { showToast('Las semifinales ya empezaron', 'error'); return; }
     state.editingMatches.add('final');
     renderContent();
   };
@@ -2488,9 +2456,24 @@ function bindContent() {
 }
 
 // =================================================================
-// INIT
+// INIT — validar token y cargar datos antes de renderizar
 // =================================================================
-render();
+async function appBoot() {
+  const token = getToken();
+  if (!token) { render(); return; }
+  try {
+    const user = await apiFetch('/api/auth/me');
+    state.currentUser = user;
+    state.view = 'fixture';
+    await loadAppData();
+  } catch (e) {
+    clearAuth();
+    state.currentUser = null;
+  }
+  render();
+}
+
+appBoot();
 </script>
 
 </body>
