@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,7 +6,7 @@ from ..auth import get_current_user
 from ..database import get_db
 from ..deadlines import ensure_match_open
 from ..limiter import limiter
-from ..models import Prediction, User
+from ..models import FinalPick, Prediction, User
 from ..schemas import PredictionIn, PredictionOut
 
 router = APIRouter(prefix="/predictions", tags=["predictions"])
@@ -34,6 +34,13 @@ def upsert_prediction(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    final_pick = db.scalar(select(FinalPick).where(FinalPick.user_id == user.id))
+    if final_pick is None:
+        raise HTTPException(
+            status_code=412,
+            detail="Tenés que elegir campeón y subcampeón antes de cargar predicciones",
+        )
+
     ensure_match_open(match_id)
 
     existing = db.scalar(
