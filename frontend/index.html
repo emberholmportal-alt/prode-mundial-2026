@@ -440,6 +440,37 @@
     background: rgba(0, 47, 108, 0.25);
     box-shadow: 0 0 0 3px rgba(0, 47, 108, 0.2);
   }
+  /* === SELECTOR DE EMPRESA (registro) === */
+  .company-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+  .company-option {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; padding: 16px 8px; border-radius: 12px;
+    border: 2px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+    cursor: pointer; transition: all 0.18s ease; min-height: 110px;
+    opacity: 0.6;
+  }
+  .company-option img { height: 56px; max-width: 100%; object-fit: contain; }
+  .company-option .company-name { font-size: 12px; letter-spacing: 0.6px; text-transform: uppercase; color: rgba(255,255,255,0.85); font-weight: 700; }
+  .company-option:hover { border-color: rgba(255,138,76,0.55); opacity: 0.9; }
+  .company-option.selected {
+    border-color: var(--naranja, #ff8a4c);
+    background: rgba(255,138,76,0.10);
+    box-shadow: 0 0 0 3px rgba(255,138,76,0.18), 0 8px 24px rgba(255,138,76,0.25);
+    opacity: 1;
+  }
+  .form-group input[disabled], .form-group select[disabled] {
+    opacity: 0.45; cursor: not-allowed;
+  }
+  .form-group .hint { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 4px; display: block; }
+  .ranking-company-tag {
+    display: inline-flex; align-items: center; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.5px; padding: 3px 7px; border-radius: 6px;
+    background: rgba(255,138,76,0.18); color: #ffb98a; border: 1px solid rgba(255,138,76,0.35);
+  }
+  .ranking-company-tag.carrefour {
+    background: rgba(0,113,206,0.18); color: #8ec8ff; border-color: rgba(0,113,206,0.35);
+  }
+
   .workplace-badge {
     background: rgba(0, 47, 108, 0.4);
     color: #B3D4FF;
@@ -1258,12 +1289,16 @@ const FIXTURE = [...buildGroupMatches(), ...buildKnockoutMatches()];
 // =================================================================
 // ESTADO
 // =================================================================
+const VALID_LB_COMPANIES = ['general', 'grupo_gestion', 'carrefour'];
+const _storedLbCompany = (typeof localStorage !== 'undefined') ? localStorage.getItem('prode_lb_company') : null;
+
 let state = {
   currentUser: null,
   view: 'login',
-  rankingType: 'general',
+  rankingType: VALID_LB_COMPANIES.includes(_storedLbCompany) ? _storedLbCompany : 'general',
   phaseFilter: 'all',
   authMode: 'login',
+  regCompany: null, // empresa seleccionada en el form de registro
   editingMatches: new Set(), // IDs de partidos en modo edición (Set para acceso O(1))
   // Cache de datos cargados del backend (poblada en appBoot / loadAppData)
   cache: {
@@ -1456,21 +1491,53 @@ function renderAuth() {
           <input id="loginPwd" type="password" placeholder="••••••••" autocomplete="current-password">
         </div>
         <button class="btn-primary" id="btnLogin">⚽ Entrar al Prode</button>
-      ` : `
+      ` : (() => {
+        const disabled = state.regCompany ? '' : 'disabled';
+        const sel = (c) => state.regCompany === c ? ' selected' : '';
+        return `
         <div class="form-group">
-          <label>Usuario (mín. 3 caracteres, sólo a-z 0-9 _)</label>
-          <input id="regUser" type="text" placeholder="ej: martin_g" autocomplete="username" maxlength="30">
+          <label>Empresa</label>
+          <div class="company-picker">
+            <div class="company-option${sel('grupo_gestion')}" data-company="grupo_gestion">
+              <img src="/assets/logo-gg.png" alt="Grupo Gestión">
+              <span class="company-name">Grupo Gestión</span>
+            </div>
+            <div class="company-option${sel('carrefour')}" data-company="carrefour">
+              <img src="/assets/logo-carrefour.png" alt="Carrefour">
+              <span class="company-name">Carrefour</span>
+            </div>
+          </div>
+          ${!state.regCompany ? '<span class="hint">⬆️ Elegí tu empresa para habilitar el resto del formulario</span>' : ''}
         </div>
         <div class="form-group">
-          <label>Nombre para mostrar</label>
-          <input id="regDisplay" type="text" placeholder="ej: Martín García" autocomplete="name" maxlength="100">
+          <label>Usuario</label>
+          <input id="regUser" type="text" placeholder="ej: juan_perez" autocomplete="username" maxlength="30" ${disabled}>
+          <span class="hint">Solo minúsculas, números y _ (3-30 caracteres). Ej: juan_perez</span>
+        </div>
+        <div class="form-group">
+          <label>Nombre y Apellido</label>
+          <input id="regDisplay" type="text" placeholder="ej: Juan Pérez" autocomplete="name" maxlength="100" ${disabled}>
+        </div>
+        <div class="form-group">
+          <label>DNI</label>
+          <input id="regDni" type="text" inputmode="numeric" placeholder="ej: 30.123.456" autocomplete="off" maxlength="13" ${disabled}>
+          <span class="hint">7 a 10 dígitos. Podés poner los puntos si querés.</span>
+        </div>
+        <div class="form-group">
+          <label>Email</label>
+          <input id="regEmail" type="email" placeholder="tu@correo.com" autocomplete="email" maxlength="200" ${disabled}>
+        </div>
+        <div class="form-group">
+          <label>Sector</label>
+          <input id="regSector" type="text" placeholder="ej: Administración, Operaciones, RRHH" autocomplete="organization-title" maxlength="100" ${disabled}>
         </div>
         <div class="form-group">
           <label>Contraseña (mín. 8 caracteres)</label>
-          <input id="regPwd" type="password" placeholder="••••••••" autocomplete="new-password">
+          <input id="regPwd" type="password" placeholder="••••••••" autocomplete="new-password" ${disabled}>
         </div>
-        <button class="btn-primary" id="btnReg">🎯 Crear Cuenta</button>
-      `}
+        <button class="btn-primary" id="btnReg" ${disabled}>🎯 Crear Cuenta</button>
+        `;
+      })()}
     </div>
   </div>`;
 }
@@ -1483,8 +1550,26 @@ function bindAuth() {
     document.getElementById('btnLogin').onclick = handleLogin;
     document.getElementById('loginPwd').onkeydown = (e) => { if (e.key === 'Enter') handleLogin(); };
   } else {
-    document.getElementById('btnReg').onclick = handleRegister;
-    document.getElementById('regPwd').onkeydown = (e) => { if (e.key === 'Enter') handleRegister(); };
+    document.querySelectorAll('.company-option').forEach(opt => {
+      opt.onclick = () => {
+        state.regCompany = opt.dataset.company;
+        // Re-render del form para habilitar inputs sin perder los valores ya tipeados
+        const snapshot = {};
+        ['regUser','regDisplay','regDni','regEmail','regSector','regPwd'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) snapshot[id] = el.value;
+        });
+        render();
+        Object.entries(snapshot).forEach(([id, val]) => {
+          const el = document.getElementById(id);
+          if (el) el.value = val;
+        });
+      };
+    });
+    const btnReg = document.getElementById('btnReg');
+    if (btnReg) btnReg.onclick = handleRegister;
+    const pwdEl = document.getElementById('regPwd');
+    if (pwdEl) pwdEl.onkeydown = (e) => { if (e.key === 'Enter') handleRegister(); };
   }
 }
 
@@ -1517,32 +1602,69 @@ async function handleLogin() {
   }
 }
 
-async function handleRegister() {
-  const username = document.getElementById('regUser').value.trim().toLowerCase();
-  const displayName = document.getElementById('regDisplay').value.trim();
-  const pwd = document.getElementById('regPwd').value;
-
-  if (!username || !/^[a-z0-9_]{3,30}$/.test(username)) {
-    showAlert('Usuario inválido: a-z, 0-9 y _, entre 3 y 30 caracteres'); return;
+function mapRegisterError(e) {
+  if (e && e.status === 409 && e.message) {
+    const m = e.message.toLowerCase();
+    if (m.includes('dni')) return 'Ya hay alguien registrado con ese DNI';
+    if (m.includes('email')) return 'Ese email ya está en uso';
+    if (m.includes('username')) return 'Ese nombre de usuario ya existe, elegí otro';
+    return e.message;
   }
-  if (!displayName) { showAlert('Ingresá un nombre para mostrar'); return; }
-  if (!pwd || pwd.length < 8) { showAlert('La contraseña debe tener al menos 8 caracteres'); return; }
+  if (e && e.status === 422) {
+    const errs = e.data && e.data.errors;
+    if (Array.isArray(errs) && errs.length) {
+      const first = errs[0];
+      const field = (first.loc || []).slice(-1)[0] || 'campo';
+      return `Dato inválido en "${field}": ${first.msg}`;
+    }
+  }
+  return (e && e.message) || 'Error al registrar';
+}
+
+async function handleRegister() {
+  const company = state.regCompany;
+  if (!company) { showAlert('Elegí una empresa primero'); return; }
+
+  const username = (document.getElementById('regUser').value || '').trim().toLowerCase();
+  const displayName = (document.getElementById('regDisplay').value || '').trim();
+  const dniRaw = (document.getElementById('regDni').value || '');
+  const email = (document.getElementById('regEmail').value || '').trim().toLowerCase();
+  const sector = (document.getElementById('regSector').value || '').trim();
+  const pwd = document.getElementById('regPwd').value || '';
+
+  // Normalizar DNI: solo dígitos (saca puntos, espacios, guiones)
+  const dni = dniRaw.replace(/\D/g, '');
+
+  if (!/^[a-z0-9_]{3,30}$/.test(username)) {
+    showAlert('Usuario inválido: solo minúsculas, números y _ (3-30 caracteres)'); return;
+  }
+  if (displayName.length < 3) { showAlert('Ingresá nombre y apellido (mín. 3 caracteres)'); return; }
+  if (!/^\d{7,10}$/.test(dni)) { showAlert('DNI inválido: 7 a 10 dígitos'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAlert('Email inválido'); return; }
+  if (sector.length < 2) { showAlert('Completá tu sector'); return; }
+  if (pwd.length < 8) { showAlert('La contraseña debe tener al menos 8 caracteres'); return; }
 
   const reset = setButtonBusy('btnReg', 'Creando cuenta...');
   try {
     const res = await apiFetch('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password: pwd, display_name: displayName })
+      body: JSON.stringify({
+        username, password: pwd, display_name: displayName,
+        dni, email, sector, company
+      })
     });
     setToken(res.access_token);
     localStorage.setItem('prode_user', JSON.stringify(res.user));
     state.currentUser = res.user;
     state.view = 'fixture';
+    state.regCompany = null;
     await loadAppData();
     showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
     render();
   } catch (e) {
-    showAlert(e.message || 'Error al registrar');
+    const msg = mapRegisterError(e);
+    showAlert(msg);
+    showToast(msg, 'error');
   } finally {
     if (reset) reset();
   }
@@ -1568,15 +1690,27 @@ async function loadAppData() {
       ? { champion: finalPick.champion, runnerUp: finalPick.runner_up }
       : {};
     state.cache.leaderboard = leaderboard || [];
+    _captureMyStats(leaderboard);
     state.cache.loaded = true;
   } catch (e) {
     showToast('Error cargando datos: ' + (e.message || ''), 'error');
   }
 }
 
+function _captureMyStats(rows) {
+  if (!state.currentUser || !Array.isArray(rows)) return;
+  const row = rows.find(r => r.username === state.currentUser.username);
+  if (row) state.cache.myStats = row;
+}
+
 async function refreshLeaderboard() {
-  try { state.cache.leaderboard = await apiFetch('/api/leaderboard') || []; }
-  catch (e) { /* no romper UI */ }
+  const company = state.rankingType;
+  const qs = (company && company !== 'general') ? `?company=${encodeURIComponent(company)}` : '';
+  try {
+    const rows = await apiFetch('/api/leaderboard' + qs) || [];
+    state.cache.leaderboard = rows;
+    _captureMyStats(rows);
+  } catch (e) { /* no romper UI */ }
 }
 
 function renderApp() {
@@ -1621,7 +1755,7 @@ async function bindApp() {
     state.currentUser = null;
     state.view = 'login';
     state.authMode = 'login';
-    state.cache = { predictions: {}, officialResults: {}, officialFinal: {}, finalPick: {}, leaderboard: [], deadlinesUtc: {}, loaded: false };
+    state.cache = { predictions: {}, officialResults: {}, officialFinal: {}, finalPick: {}, leaderboard: [], myStats: null, deadlinesUtc: {}, loaded: false };
     render();
   };
   document.querySelectorAll('.tab').forEach(t => {
@@ -1661,9 +1795,8 @@ function renderFixture() {
   const predictions = state.cache.predictions;
   const officialResults = state.cache.officialResults;
 
-  // Puntos: el backend manda el total en /api/leaderboard
-  const myRow = (state.cache.leaderboard || []).find(r => r.username === u.username);
-  const myPoints = myRow ? myRow.points : 0;
+  // Puntos: el backend los manda en /api/leaderboard (cache de la fila propia)
+  const myPoints = state.cache.myStats ? state.cache.myStats.points : 0;
 
   const totalMatches = FIXTURE.length;
   const predicted = Object.keys(predictions).length;
@@ -2051,10 +2184,22 @@ async function saveFinalPick() {
 // =================================================================
 // RANKING (servido completo por el backend, ya ordenado)
 // =================================================================
+const COMPANY_LABELS = { grupo_gestion: 'GG', carrefour: 'Carr' };
+const COMPANY_NAMES = { grupo_gestion: 'Grupo Gestión', carrefour: 'Carrefour' };
+
+function companyTag(company) {
+  if (!company) return '';
+  const cls = company === 'carrefour' ? 'carrefour' : '';
+  const label = COMPANY_LABELS[company] || company;
+  const full = COMPANY_NAMES[company] || company;
+  return `<span class="ranking-company-tag ${cls}" title="${full}">${label}</span>`;
+}
+
 function renderRanking() {
   const me = state.currentUser.username;
   const sorted = (state.cache.leaderboard || []).slice();
   const podio = sorted.slice(0, 3);
+  const active = state.rankingType || 'general';
 
   let podioHtml = '';
   if (podio.length > 0) {
@@ -2079,15 +2224,16 @@ function renderRanking() {
 
   let listHtml = '';
   if (sorted.length === 0) {
-    listHtml = '<div class="empty-state"><span class="icon">📊</span>Todavía no hay participantes en el ranking.</div>';
+    listHtml = '<div class="empty-state"><span class="icon">📊</span>Todavía no hay participantes en este ranking.</div>';
   } else {
     listHtml = '<div class="ranking-list">';
     sorted.forEach((u, i) => {
       const isMe = u.username === me;
       const tags = [
         `<span class="ranking-cat-tag fc">${u.correct_exact} exactos</span>`,
-        `<span class="ranking-cat-tag pe">${u.correct_result} resultado</span>`
-      ];
+        `<span class="ranking-cat-tag pe">${u.correct_result} resultado</span>`,
+        companyTag(u.company)
+      ].filter(Boolean);
       listHtml += `<div class="ranking-row ${isMe ? 'me' : ''}">
         <div class="ranking-pos">#${i + 1}</div>
         <div class="ranking-user">
@@ -2103,7 +2249,12 @@ function renderRanking() {
 
   return `
   <div class="ranking-tabs">
-    <button class="ranking-tab active" data-type="general">🌍 Ranking General <small>(${sorted.length})</small></button>
+    <button class="ranking-tab ${active === 'general' ? 'active' : ''}" data-type="general">🌍 General</button>
+    <button class="ranking-tab ${active === 'grupo_gestion' ? 'active' : ''}" data-type="grupo_gestion">🏭 Grupo Gestión</button>
+    <button class="ranking-tab ${active === 'carrefour' ? 'active' : ''}" data-type="carrefour">🛒 Carrefour</button>
+  </div>
+  <div style="text-align:center;font-size:11px;color:rgba(255,255,255,0.55);margin:6px 0 12px;">
+    ${sorted.length} participante${sorted.length === 1 ? '' : 's'}
   </div>
   ${podioHtml}
   ${listHtml}`;
@@ -2421,7 +2572,11 @@ function bindContent() {
     };
   });
   document.querySelectorAll('.ranking-tab').forEach(t => {
-    t.onclick = () => { state.rankingType = t.dataset.type; renderContent(); };
+    t.onclick = () => {
+      state.rankingType = t.dataset.type;
+      try { localStorage.setItem('prode_lb_company', state.rankingType); } catch (e) {}
+      renderContent();
+    };
   });
   document.querySelectorAll('[data-admin-save]').forEach(btn => {
     btn.onclick = () => saveOfficialResult(btn.dataset.adminSave);
