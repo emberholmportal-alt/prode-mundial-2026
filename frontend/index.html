@@ -968,6 +968,119 @@
     .tab { font-size: 12px; padding: 10px 14px; }
     .champion-title { font-size: 17px; }
   }
+  /* === SEDE / CITY PICKER === */
+  .city-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+  .city-option {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; padding: 14px 8px; border-radius: 12px;
+    border: 2px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+    cursor: pointer; transition: all 0.18s ease; min-height: 88px; opacity: 0.7;
+  }
+  .city-emoji { font-size: 22px; }
+  .city-name { font-size: 11.5px; letter-spacing: 0.4px; text-transform: uppercase; color: rgba(255,255,255,0.85); font-weight: 700; text-align: center; }
+  .city-option:hover { border-color: rgba(255,138,76,0.5); opacity: 0.95; }
+  .city-option.selected {
+    border-color: var(--naranja, #ff8a4c);
+    background: rgba(255,138,76,0.10);
+    box-shadow: 0 0 0 2px rgba(255,138,76,0.18);
+    opacity: 1;
+  }
+
+  /* === COMMENTS PANEL === */
+  .comments-fab {
+    position: fixed; right: 16px; bottom: 16px; z-index: 800;
+    width: 56px; height: 56px; border-radius: 50%; border: none;
+    background: linear-gradient(135deg, #ff8a4c, #ff6a2c);
+    color: #fff; font-size: 22px; cursor: pointer;
+    box-shadow: 0 8px 28px rgba(255,138,76,0.45);
+    transition: transform 0.18s ease;
+  }
+  .comments-fab:hover { transform: scale(1.05); }
+  .comments-fab .badge {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--rojo, #c0392b); color: #fff; font-size: 10px;
+    border-radius: 10px; padding: 2px 6px; font-weight: 800;
+  }
+  .comments-panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: 360px;
+    background: linear-gradient(180deg, #15102a 0%, #0c0820 100%);
+    border-left: 1px solid rgba(255,138,76,0.18);
+    box-shadow: -20px 0 60px rgba(0,0,0,0.45);
+    z-index: 850; display: flex; flex-direction: column;
+    transform: translateX(100%); transition: transform 0.32s cubic-bezier(0.2,0.8,0.2,1);
+  }
+  .comments-panel.open { transform: translateX(0); }
+  .comments-header {
+    padding: 16px 16px 12px; border-bottom: 1px solid rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .comments-header h3 { margin: 0; font-size: 14px; letter-spacing: 2px; text-transform: uppercase; color: #ffd0a8; }
+  .comments-close { background: none; border: none; color: rgba(255,255,255,0.6); font-size: 22px; cursor: pointer; }
+  .comments-list { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+  .comment-card {
+    background: rgba(255,255,255,0.04); border-radius: 10px; padding: 10px 12px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .comment-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .comment-name { font-weight: 800; font-size: 13px; color: #fff; }
+  .comment-meta { font-size: 10px; color: rgba(255,255,255,0.45); margin-left: auto; }
+  .comment-body { font-size: 13px; line-height: 1.45; color: rgba(255,255,255,0.88); word-wrap: break-word; }
+  .comment-tag {
+    display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.5px;
+    padding: 2px 6px; border-radius: 5px;
+    background: rgba(255,138,76,0.16); color: #ffb98a; border: 1px solid rgba(255,138,76,0.3);
+  }
+  .comment-tag.carrefour { background: rgba(0,113,206,0.16); color: #8ec8ff; border-color: rgba(0,113,206,0.3); }
+  .comment-tag.sede { background: rgba(186,202,72,0.14); color: #d6e394; border-color: rgba(186,202,72,0.28); }
+  .comments-form { padding: 10px 14px 16px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; }
+  .comments-form textarea {
+    flex: 1; resize: none; padding: 10px; border-radius: 10px;
+    background: rgba(255,255,255,0.04); color: #fff; border: 1px solid rgba(255,255,255,0.1);
+    font-family: inherit; font-size: 13px; min-height: 42px; max-height: 100px;
+  }
+  .comments-form button {
+    background: var(--naranja, #ff8a4c); color: #fff; border: none;
+    border-radius: 10px; padding: 0 14px; font-weight: 800; cursor: pointer;
+    font-size: 13px;
+  }
+  .comments-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+  @media (max-width: 600px) {
+    .comments-panel { width: 100%; }
+    .comments-fab { right: 14px; bottom: 14px; }
+  }
+
+  /* === LIVE WIDGET === */
+  .live-widget {
+    background: linear-gradient(135deg, rgba(204, 41, 54, 0.18), rgba(204, 41, 54, 0.04));
+    border: 1px solid rgba(204, 41, 54, 0.45);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .live-widget.next { background: linear-gradient(135deg, rgba(186,202,72,0.12), rgba(186,202,72,0.03)); border-color: rgba(186,202,72,0.35); }
+  .live-widget-title {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase; font-weight: 800; color: #ff8a8a;
+  }
+  .live-widget.next .live-widget-title { color: #d6e394; }
+  .live-widget-title .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #ff3838;
+    animation: liveDot 1.2s ease-in-out infinite;
+  }
+  .live-widget.next .live-widget-title .dot { background: #bacab8; animation: none; }
+  @keyframes liveDot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .live-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 8px 0; font-size: 13px;
+  }
+  .live-row + .live-row { border-top: 1px solid rgba(255,255,255,0.06); }
+  .live-teams { font-weight: 700; flex: 1; min-width: 0; }
+  .live-score { font-weight: 900; font-size: 16px; color: #ffd0a8; white-space: nowrap; }
+  .live-minute { font-size: 11px; color: rgba(255,255,255,0.6); }
+  .live-countdown { font-weight: 900; color: #d6e394; }
+
+  /* === CONFETTI === */
+  .confetti-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 9000; }
+
   /* === SPLASH / INTRO (logo GG CUP + botón Entrar + música) === */
   .splash-overlay {
     position: fixed; inset: 0; z-index: 9999;
@@ -1045,6 +1158,21 @@
 
 <div id="app"></div>
 <div id="toast" class="toast"></div>
+
+<button id="commentsFab" class="comments-fab" type="button" hidden aria-label="Comentarios">
+  💬<span class="badge" id="commentsBadge" hidden></span>
+</button>
+<aside id="commentsPanel" class="comments-panel" aria-hidden="true">
+  <div class="comments-header">
+    <h3>💬 Comentarios</h3>
+    <button class="comments-close" id="commentsClose" type="button" aria-label="Cerrar">✕</button>
+  </div>
+  <div class="comments-list" id="commentsList"></div>
+  <form class="comments-form" id="commentsForm">
+    <textarea id="commentInput" placeholder="Escribí algo…" maxlength="500" rows="2"></textarea>
+    <button type="submit" id="commentSend">Enviar</button>
+  </form>
+</aside>
 
 <script>
 // =================================================================
@@ -1360,16 +1488,21 @@ const FIXTURE = [...buildGroupMatches(), ...buildKnockoutMatches()];
 // =================================================================
 // ESTADO
 // =================================================================
-const VALID_LB_COMPANIES = ['general', 'grupo_gestion', 'carrefour'];
+const VALID_LB_FILTERS = ['general', 'grupo_gestion', 'carrefour', 'isidro_casanova', 'esteban_echeverria'];
 const _storedLbCompany = (typeof localStorage !== 'undefined') ? localStorage.getItem('prode_lb_company') : null;
 
 let state = {
   currentUser: null,
   view: 'login',
-  rankingType: VALID_LB_COMPANIES.includes(_storedLbCompany) ? _storedLbCompany : 'general',
+  rankingType: VALID_LB_FILTERS.includes(_storedLbCompany) ? _storedLbCompany : 'general',
+  comments: [],
+  commentsOpen: false,
+  commentsLastSeenId: parseInt(localStorage.getItem('prode_comments_last') || '0', 10) || 0,
+  live: null,
   phaseFilter: 'all',
   authMode: 'login',
   regCompany: null, // empresa seleccionada en el form de registro
+  regCity: null,    // sede (Casanova / Echeverría)
   editingMatches: new Set(), // IDs de partidos en modo edición (Set para acceso O(1))
   // Cache de datos cargados del backend (poblada en appBoot / loadAppData)
   cache: {
@@ -1563,22 +1696,38 @@ function renderAuth() {
         </div>
         <button class="btn-primary" id="btnLogin">⚽ Entrar al Prode</button>
       ` : (() => {
-        const disabled = state.regCompany ? '' : 'disabled';
-        const sel = (c) => state.regCompany === c ? ' selected' : '';
+        const disabled = (state.regCompany && state.regCity) ? '' : 'disabled';
+        const selCo = (c) => state.regCompany === c ? ' selected' : '';
+        const selCi = (c) => state.regCity === c ? ' selected' : '';
+        const cityHidden = state.regCompany ? '' : 'style="display:none"';
         return `
         <div class="form-group">
           <label>Empresa</label>
           <div class="company-picker">
-            <div class="company-option${sel('grupo_gestion')}" data-company="grupo_gestion">
+            <div class="company-option${selCo('grupo_gestion')}" data-company="grupo_gestion">
               <img src="/assets/logo-gg.png" alt="Grupo Gestión">
               <span class="company-name">Grupo Gestión</span>
             </div>
-            <div class="company-option${sel('carrefour')}" data-company="carrefour">
+            <div class="company-option${selCo('carrefour')}" data-company="carrefour">
               <img src="/assets/logo-carrefour.png" alt="Carrefour">
               <span class="company-name">Carrefour</span>
             </div>
           </div>
-          ${!state.regCompany ? '<span class="hint">⬆️ Elegí tu empresa para habilitar el resto del formulario</span>' : ''}
+          ${!state.regCompany ? '<span class="hint">⬆️ Elegí tu empresa</span>' : ''}
+        </div>
+        <div class="form-group" ${cityHidden}>
+          <label>Sede</label>
+          <div class="city-picker">
+            <div class="city-option${selCi('isidro_casanova')}" data-city="isidro_casanova">
+              <span class="city-emoji">🏭</span>
+              <span class="city-name">Isidro Casanova</span>
+            </div>
+            <div class="city-option${selCi('esteban_echeverria')}" data-city="esteban_echeverria">
+              <span class="city-emoji">🏢</span>
+              <span class="city-name">Esteban Echeverría</span>
+            </div>
+          </div>
+          ${state.regCompany && !state.regCity ? '<span class="hint">⬆️ Elegí tu sede para continuar</span>' : ''}
         </div>
         <div class="form-group">
           <label>Usuario</label>
@@ -1621,20 +1770,31 @@ function bindAuth() {
     document.getElementById('btnLogin').onclick = handleLogin;
     document.getElementById('loginPwd').onkeydown = (e) => { if (e.key === 'Enter') handleLogin(); };
   } else {
+    function _reRenderRegPreservingInputs() {
+      const snapshot = {};
+      ['regUser','regDisplay','regDni','regEmail','regSector','regPwd'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) snapshot[id] = el.value;
+      });
+      render();
+      Object.entries(snapshot).forEach(([id, val]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = val;
+      });
+    }
     document.querySelectorAll('.company-option').forEach(opt => {
       opt.onclick = () => {
-        state.regCompany = opt.dataset.company;
-        // Re-render del form para habilitar inputs sin perder los valores ya tipeados
-        const snapshot = {};
-        ['regUser','regDisplay','regDni','regEmail','regSector','regPwd'].forEach(id => {
-          const el = document.getElementById(id);
-          if (el) snapshot[id] = el.value;
-        });
-        render();
-        Object.entries(snapshot).forEach(([id, val]) => {
-          const el = document.getElementById(id);
-          if (el) el.value = val;
-        });
+        if (state.regCompany !== opt.dataset.company) {
+          state.regCompany = opt.dataset.company;
+          state.regCity = null; // forzar re-elección de sede al cambiar empresa
+        }
+        _reRenderRegPreservingInputs();
+      };
+    });
+    document.querySelectorAll('.city-option').forEach(opt => {
+      opt.onclick = () => {
+        state.regCity = opt.dataset.city;
+        _reRenderRegPreservingInputs();
       };
     });
     const btnReg = document.getElementById('btnReg');
@@ -1664,6 +1824,7 @@ async function handleLogin() {
     state.currentUser = res.user;
     state.view = 'fixture';
     await loadAppData();
+    startBackgroundPolling();
     showToast('¡Bienvenido, ' + (res.user.display_name || res.user.username) + '!');
     render();
   } catch (e) {
@@ -1694,7 +1855,9 @@ function mapRegisterError(e) {
 
 async function handleRegister() {
   const company = state.regCompany;
+  const city = state.regCity;
   if (!company) { showAlert('Elegí una empresa primero'); return; }
+  if (!city) { showAlert('Elegí tu sede (Isidro Casanova o Esteban Echeverría)'); return; }
 
   const username = (document.getElementById('regUser').value || '').trim().toLowerCase();
   const displayName = (document.getElementById('regDisplay').value || '').trim();
@@ -1721,7 +1884,7 @@ async function handleRegister() {
       method: 'POST',
       body: JSON.stringify({
         username, password: pwd, display_name: displayName,
-        dni, email, sector, company
+        dni, email, sector, company, city
       })
     });
     setToken(res.access_token);
@@ -1729,7 +1892,9 @@ async function handleRegister() {
     state.currentUser = res.user;
     state.view = 'fixture';
     state.regCompany = null;
+    state.regCity = null;
     await loadAppData();
+    startBackgroundPolling();
     showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
     render();
   } catch (e) {
@@ -1775,8 +1940,10 @@ function _captureMyStats(rows) {
 }
 
 async function refreshLeaderboard() {
-  const company = state.rankingType;
-  const qs = (company && company !== 'general') ? `?company=${encodeURIComponent(company)}` : '';
+  const t = state.rankingType;
+  let qs = '';
+  if (t === 'grupo_gestion' || t === 'carrefour') qs = '?company=' + encodeURIComponent(t);
+  else if (t === 'isidro_casanova' || t === 'esteban_echeverria') qs = '?city=' + encodeURIComponent(t);
   try {
     const rows = await apiFetch('/api/leaderboard' + qs) || [];
     state.cache.leaderboard = rows;
@@ -1822,11 +1989,14 @@ function renderApp() {
 
 async function bindApp() {
   document.getElementById('btnLogout').onclick = () => {
+    stopBackgroundPolling();
     clearAuth();
     state.currentUser = null;
     state.view = 'login';
     state.authMode = 'login';
     state.cache = { predictions: {}, officialResults: {}, officialFinal: {}, finalPick: {}, leaderboard: [], myStats: null, deadlinesUtc: {}, loaded: false };
+    state.comments = [];
+    state.live = null;
     render();
   };
   document.querySelectorAll('.tab').forEach(t => {
@@ -1933,6 +2103,8 @@ function renderFixture() {
   }
 
   return `
+  ${renderLiveWidget()}
+
   <div class="stats-bar">
     <div class="stat-card"><div class="stat-value">${myPoints}</div><div class="stat-label">Mis Puntos</div></div>
     <div class="stat-card"><div class="stat-value">${predicted}</div><div class="stat-label">Pronosticados</div></div>
@@ -2243,7 +2415,8 @@ async function saveFinalPick() {
     state.cache.finalPick = { champion: res.champion, runnerUp: res.runner_up };
     state.editingMatches.delete('final');
     await refreshLeaderboard();
-    showToast('Elección guardada ✓');
+    confetti({ intensity: 'big' });
+    showToast('🏆 ¡Campeón y subcampeón guardados!');
     renderContent();
   } catch (e) {
     showToast(e.message || 'Error al guardar', 'error');
@@ -2257,6 +2430,8 @@ async function saveFinalPick() {
 // =================================================================
 const COMPANY_LABELS = { grupo_gestion: 'GG', carrefour: 'Carr' };
 const COMPANY_NAMES = { grupo_gestion: 'Grupo Gestión', carrefour: 'Carrefour' };
+const CITY_LABELS = { isidro_casanova: 'Casanova', esteban_echeverria: 'Echeverría' };
+const CITY_NAMES = { isidro_casanova: 'Isidro Casanova', esteban_echeverria: 'Esteban Echeverría' };
 
 function companyTag(company) {
   if (!company) return '';
@@ -2264,6 +2439,13 @@ function companyTag(company) {
   const label = COMPANY_LABELS[company] || company;
   const full = COMPANY_NAMES[company] || company;
   return `<span class="ranking-company-tag ${cls}" title="${full}">${label}</span>`;
+}
+
+function cityTag(city) {
+  if (!city) return '';
+  const label = CITY_LABELS[city] || city;
+  const full = CITY_NAMES[city] || city;
+  return `<span class="comment-tag sede" title="${full}">${label}</span>`;
 }
 
 function renderRanking() {
@@ -2303,7 +2485,8 @@ function renderRanking() {
       const tags = [
         `<span class="ranking-cat-tag fc">${u.correct_exact} exactos</span>`,
         `<span class="ranking-cat-tag pe">${u.correct_result} resultado</span>`,
-        companyTag(u.company)
+        companyTag(u.company),
+        cityTag(u.city)
       ].filter(Boolean);
       listHtml += `<div class="ranking-row ${isMe ? 'me' : ''}">
         <div class="ranking-pos">#${i + 1}</div>
@@ -2323,6 +2506,10 @@ function renderRanking() {
     <button class="ranking-tab ${active === 'general' ? 'active' : ''}" data-type="general">🌍 General</button>
     <button class="ranking-tab ${active === 'grupo_gestion' ? 'active' : ''}" data-type="grupo_gestion">🏭 Grupo Gestión</button>
     <button class="ranking-tab ${active === 'carrefour' ? 'active' : ''}" data-type="carrefour">🛒 Carrefour</button>
+  </div>
+  <div class="ranking-tabs" style="margin-top:-12px;">
+    <button class="ranking-tab ${active === 'isidro_casanova' ? 'active' : ''}" data-type="isidro_casanova">🏭 I. Casanova</button>
+    <button class="ranking-tab ${active === 'esteban_echeverria' ? 'active' : ''}" data-type="esteban_echeverria">🏢 E. Echeverría</button>
   </div>
   <div style="text-align:center;font-size:11px;color:rgba(255,255,255,0.55);margin:6px 0 12px;">
     ${sorted.length} participante${sorted.length === 1 ? '' : 's'}
@@ -2588,12 +2775,21 @@ async function savePrediction(matchId, opts = {}) {
   const card = document.querySelector(`[data-match-id="${matchId}"]`);
   if (card) card.dataset.saving = '1';
 
+  const wasNew = !state.cache.predictions[matchId];
   try {
     const res = await apiFetch(`/api/predictions/${encodeURIComponent(matchId)}`, {
       method: 'PUT',
       body: JSON.stringify({ home_score: homeN, away_score: awayN })
     });
     state.cache.predictions[matchId] = { home: res.home_score, away: res.away_score };
+    confetti({ intensity: 'small' });
+    if (wasNew) {
+      const total = Object.keys(state.cache.predictions).length;
+      if (total === 10 || total === 50 || total === 104) {
+        setTimeout(() => confetti({ intensity: 'big' }), 250);
+        showToast(total === 104 ? '🎉 ¡Cargaste TODOS los pronósticos! 🏆' : `🎉 ¡Llegaste a ${total} pronósticos!`);
+      }
+    }
     if (!opts.silent) {
       state.editingMatches.delete(matchId);
       showToast('Pronóstico guardado ✓');
@@ -2684,6 +2880,320 @@ function bindContent() {
 // =================================================================
 // INIT — validar token y cargar datos antes de renderizar
 // =================================================================
+// =================================================================
+// CONFETTI
+// =================================================================
+function confetti(opts = {}) {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const intensity = opts.intensity || 'small';
+  const N = intensity === 'big' ? 220 : 80;
+  const duration = intensity === 'big' ? 3400 : 2000;
+  const canvas = document.createElement('canvas');
+  canvas.className = 'confetti-canvas';
+  canvas.width = innerWidth; canvas.height = innerHeight;
+  document.body.appendChild(canvas);
+  const ctx = canvas.getContext('2d');
+  const colors = ['#ff8a4c','#ffd0a8','#bacab8','#ff5f47','#ffd23f','#3aa9ff','#79e3a4','#e6479e'];
+  const cx = canvas.width / 2;
+  const cy = intensity === 'big' ? canvas.height / 2 : canvas.height * 0.4;
+  const parts = [];
+  for (let i = 0; i < N; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = (Math.random() * 0.7 + 0.4) * (intensity === 'big' ? 16 : 11);
+    parts.push({
+      x: cx + (Math.random()-0.5)*40,
+      y: cy + (Math.random()-0.5)*30,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - (intensity === 'big' ? 4 : 2),
+      g: 0.38 + Math.random()*0.25,
+      r: 4 + Math.random()*5,
+      rot: Math.random()*Math.PI*2,
+      vr: (Math.random()-0.5)*0.4,
+      color: colors[Math.floor(Math.random()*colors.length)],
+      shape: Math.random() < 0.55 ? 'rect' : 'circle',
+    });
+  }
+  const start = performance.now();
+  function frame(now) {
+    const t = now - start;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    parts.forEach(p => {
+      p.vy += p.g;
+      p.x += p.vx; p.y += p.vy;
+      p.rot += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rot);
+      ctx.fillStyle = p.color;
+      ctx.globalAlpha = Math.max(0, 1 - t/duration);
+      if (p.shape === 'rect') ctx.fillRect(-p.r, -p.r*0.5, p.r*2, p.r);
+      else { ctx.beginPath(); ctx.arc(0,0,p.r,0,Math.PI*2); ctx.fill(); }
+      ctx.restore();
+    });
+    if (t < duration) requestAnimationFrame(frame);
+    else canvas.remove();
+  }
+  requestAnimationFrame(frame);
+}
+
+// =================================================================
+// LIVE WIDGET
+// =================================================================
+let _livePollTimer = null;
+
+function _formatCountdown(ms) {
+  if (ms <= 0) return 'arrancando...';
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${ss}s`;
+  return `${ss}s`;
+}
+
+function _teamNameOrCode(code) {
+  return (TEAMS[code] && TEAMS[code].name) || code;
+}
+
+function renderLiveWidget() {
+  const data = state.live;
+  if (!data) return '';
+
+  // Cruce: si hay remote_matches con status IN_PLAY/LIVE/PAUSED, los priorizamos
+  const remoteLive = (data.remote_matches || []).filter(m =>
+    ['IN_PLAY', 'PAUSED', 'LIVE'].includes((m.status || '').toUpperCase())
+  );
+
+  let html = '';
+
+  if (remoteLive.length > 0) {
+    html += `<div class="live-widget">
+      <div class="live-widget-title"><span class="dot"></span> EN VIVO AHORA</div>`;
+    remoteLive.forEach(m => {
+      const score = (m.home_score != null && m.away_score != null)
+        ? `${m.home_score} - ${m.away_score}` : '—';
+      html += `<div class="live-row">
+        <span class="live-teams">${m.home_name || m.home_tla || '?'} vs ${m.away_name || m.away_tla || '?'}</span>
+        <span class="live-score">${score}</span>
+        ${m.minute ? `<span class="live-minute">${m.minute}'</span>` : ''}
+      </div>`;
+    });
+    html += `</div>`;
+  } else if ((data.live_local || []).length > 0) {
+    html += `<div class="live-widget">
+      <div class="live-widget-title"><span class="dot"></span> SE ESTÁ JUGANDO</div>`;
+    data.live_local.forEach(m => {
+      html += `<div class="live-row">
+        <span class="live-teams">${_teamNameOrCode(m.home)} vs ${_teamNameOrCode(m.away)}</span>
+        <span class="live-minute">~${m.minutes_in}' de juego</span>
+      </div>`;
+    });
+    if (data.remote_error || !data.remote_available) {
+      html += `<div style="font-size:10px;color:rgba(255,255,255,0.4);text-align:center;margin-top:4px;">marcador no disponible</div>`;
+    }
+    html += `</div>`;
+  }
+
+  // Próximo partido — solo si NO hay nada en vivo
+  if (!html && data.next_match) {
+    const m = data.next_match;
+    const ko = new Date(m.datetime_utc.replace('Z', '+00:00'));
+    const ms = ko.getTime() - Date.now();
+    html = `<div class="live-widget next">
+      <div class="live-widget-title"><span class="dot"></span> PRÓXIMO PARTIDO</div>
+      <div class="live-row">
+        <span class="live-teams">${_teamNameOrCode(m.home)} vs ${_teamNameOrCode(m.away)}</span>
+        <span class="live-countdown">${_formatCountdown(ms)}</span>
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
+async function loadLive() {
+  try {
+    state.live = await apiFetch('/api/live');
+    if (state.view === 'fixture') {
+      // re-render solo si estamos viendo el fixture y no estamos editando algo
+      const c = document.getElementById('content');
+      if (c && state.editingMatches.size === 0) renderContent();
+    }
+  } catch (e) { /* silent */ }
+}
+
+function startLivePolling() {
+  if (_livePollTimer) return;
+  loadLive();
+  _livePollTimer = setInterval(loadLive, 60_000);
+}
+function stopLivePolling() {
+  if (_livePollTimer) { clearInterval(_livePollTimer); _livePollTimer = null; }
+}
+
+// =================================================================
+// COMMENTS PANEL
+// =================================================================
+let _commentsPollTimer = null;
+
+function renderCommentsList() {
+  const list = document.getElementById('commentsList');
+  if (!list) return;
+  const items = state.comments || [];
+  if (items.length === 0) {
+    list.innerHTML = '<div style="color:rgba(255,255,255,0.4);text-align:center;padding:30px 0;font-size:12px;">No hay comentarios todavía. Sé el primero.</div>';
+    return;
+  }
+  list.innerHTML = items.map(c => {
+    const time = new Date(c.created_at + (c.created_at.endsWith('Z') ? '' : 'Z'));
+    const when = time.toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+    const tags = [
+      `<span class="comment-tag">${c.sector || ''}</span>`,
+      companyTag(c.company),
+      cityTag(c.city)
+    ].filter(Boolean).join(' ');
+    return `<div class="comment-card">
+      <div class="comment-head">
+        <span class="comment-name">${c.display_name || c.username}</span>
+        ${tags}
+        <span class="comment-meta">${when}</span>
+      </div>
+      <div class="comment-body">${(c.body || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]))}</div>
+    </div>`;
+  }).join('');
+}
+
+function _updateCommentsBadge() {
+  const badge = document.getElementById('commentsBadge');
+  if (!badge) return;
+  const newest = state.comments[0] ? state.comments[0].id : 0;
+  const unread = state.comments.filter(c => c.id > state.commentsLastSeenId).length;
+  if (unread > 0 && !state.commentsOpen) {
+    badge.textContent = unread > 99 ? '99+' : String(unread);
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+  if (state.commentsOpen && newest > state.commentsLastSeenId) {
+    state.commentsLastSeenId = newest;
+    try { localStorage.setItem('prode_comments_last', String(newest)); } catch (e) {}
+  }
+}
+
+async function loadComments() {
+  try {
+    state.comments = await apiFetch('/api/comments?limit=100') || [];
+    renderCommentsList();
+    _updateCommentsBadge();
+  } catch (e) { /* silent */ }
+}
+
+async function postComment(body) {
+  const trimmed = (body || '').trim();
+  if (!trimmed) return;
+  const btn = document.getElementById('commentSend');
+  if (btn) btn.disabled = true;
+  try {
+    const created = await apiFetch('/api/comments', {
+      method: 'POST',
+      body: JSON.stringify({ body: trimmed })
+    });
+    state.comments.unshift(created);
+    renderCommentsList();
+    _updateCommentsBadge();
+    const input = document.getElementById('commentInput');
+    if (input) input.value = '';
+  } catch (e) {
+    showToast(e.message || 'Error al enviar comentario', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function openComments() {
+  state.commentsOpen = true;
+  const panel = document.getElementById('commentsPanel');
+  if (panel) { panel.classList.add('open'); panel.setAttribute('aria-hidden', 'false'); }
+  if (state.comments[0]) {
+    state.commentsLastSeenId = state.comments[0].id;
+    try { localStorage.setItem('prode_comments_last', String(state.commentsLastSeenId)); } catch (e) {}
+  }
+  _updateCommentsBadge();
+}
+function closeComments() {
+  state.commentsOpen = false;
+  const panel = document.getElementById('commentsPanel');
+  if (panel) { panel.classList.remove('open'); panel.setAttribute('aria-hidden', 'true'); }
+}
+
+function bindComments() {
+  const fab = document.getElementById('commentsFab');
+  if (fab && !fab._bound) {
+    fab._bound = true;
+    fab.addEventListener('click', () => state.commentsOpen ? closeComments() : openComments());
+  }
+  const close = document.getElementById('commentsClose');
+  if (close && !close._bound) { close._bound = true; close.addEventListener('click', closeComments); }
+  const form = document.getElementById('commentsForm');
+  if (form && !form._bound) {
+    form._bound = true;
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('commentInput');
+      postComment(input ? input.value : '');
+    });
+  }
+  const input = document.getElementById('commentInput');
+  if (input && !input._bound) {
+    input._bound = true;
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        postComment(input.value);
+      }
+    });
+  }
+}
+
+function startCommentsPolling() {
+  if (_commentsPollTimer) return;
+  loadComments();
+  _commentsPollTimer = setInterval(loadComments, 30_000);
+}
+function stopCommentsPolling() {
+  if (_commentsPollTimer) { clearInterval(_commentsPollTimer); _commentsPollTimer = null; }
+}
+
+function showCommentsFab() {
+  const fab = document.getElementById('commentsFab');
+  if (fab) fab.hidden = false;
+  bindComments();
+}
+function hideCommentsFab() {
+  const fab = document.getElementById('commentsFab');
+  if (fab) fab.hidden = true;
+  closeComments();
+}
+
+// =================================================================
+// POLLING LIFECYCLE
+// =================================================================
+function startBackgroundPolling() {
+  startLivePolling();
+  startCommentsPolling();
+  showCommentsFab();
+}
+function stopBackgroundPolling() {
+  stopLivePolling();
+  stopCommentsPolling();
+  hideCommentsFab();
+}
+
+// =================================================================
+// INIT — validar token y cargar datos antes de renderizar
+// =================================================================
 async function appBoot() {
   const token = getToken();
   if (!token) { render(); return; }
@@ -2692,6 +3202,7 @@ async function appBoot() {
     state.currentUser = user;
     state.view = 'fixture';
     await loadAppData();
+    startBackgroundPolling();
   } catch (e) {
     clearAuth();
     state.currentUser = null;
