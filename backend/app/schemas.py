@@ -1,23 +1,38 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserOut(BaseModel):
+    """Vista pública del usuario (sin campos privados)."""
+
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     username: str
     display_name: str
     is_admin: bool
+    company: str
     created_at: datetime
+
+
+class UserPrivateOut(UserOut):
+    """Vista con campos privados — sólo si quien consulta es el dueño o un admin."""
+
+    dni: str
+    email: str
+    sector: str
 
 
 class RegisterIn(BaseModel):
     username: str = Field(min_length=3, max_length=30)
     password: str = Field(min_length=8, max_length=128)
-    display_name: str = Field(min_length=1, max_length=100)
+    display_name: str = Field(min_length=3, max_length=100)
+    dni: str = Field(min_length=7, max_length=10, pattern=r"^\d+$")
+    email: EmailStr
+    sector: str = Field(min_length=2, max_length=100)
+    company: Literal["grupo_gestion", "carrefour"]
 
 
 class LoginIn(BaseModel):
@@ -28,7 +43,7 @@ class LoginIn(BaseModel):
 class AuthOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user: UserOut
+    user: UserPrivateOut
 
 
 class PredictionIn(BaseModel):
@@ -86,6 +101,7 @@ class OfficialFinalOut(BaseModel):
 class LeaderboardRow(BaseModel):
     username: str
     display_name: str
+    company: str
     points: int
     predicted_count: int
     correct_exact: int

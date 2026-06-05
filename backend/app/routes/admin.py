@@ -13,6 +13,7 @@ from ..schemas import (
     OfficialFinalOut,
     OfficialResultIn,
     OfficialResultOut,
+    UserPrivateOut,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_current_admin)])
@@ -116,3 +117,10 @@ def stats(request: Request, db: Session = Depends(get_db)):
         final_picks_count=final_picks_count,
         official_final_set=bool(official_final and official_final.champion),
     )
+
+
+@router.get("/users", response_model=list[UserPrivateOut])
+@limiter.limit("30/minute")
+def list_users(request: Request, db: Session = Depends(get_db)):
+    users = db.scalars(select(User).order_by(User.username)).all()
+    return [UserPrivateOut.model_validate(u) for u in users]

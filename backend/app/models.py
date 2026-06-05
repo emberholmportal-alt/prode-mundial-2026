@@ -16,14 +16,30 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
+COMPANIES = ("grupo_gestion", "carrefour")
+
+
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("dni", name="uq_users_dni"),
+        UniqueConstraint("email", name="uq_users_email"),
+        CheckConstraint(
+            "company IN ('grupo_gestion', 'carrefour')",
+            name="ck_users_company",
+        ),
+        Index("ix_users_company", "company"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    dni: Mapped[str] = mapped_column(String(10), nullable=False)
+    email: Mapped[str] = mapped_column(String(200), nullable=False)
+    sector: Mapped[str] = mapped_column(String(100), nullable=False)
+    company: Mapped[str] = mapped_column(String(20), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), nullable=False, server_default=func.now()
     )
