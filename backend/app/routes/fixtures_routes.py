@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from ..deadlines import all_phase_deadlines
+from ..deadlines import all_match_deadlines, final_pick_deadline_utc
 from ..fixtures import FIXTURE, TEAMS
 
 router = APIRouter(tags=["fixtures"])
@@ -8,9 +8,11 @@ router = APIRouter(tags=["fixtures"])
 
 @router.get("/fixtures")
 def list_fixtures():
+    fp_dl = final_pick_deadline_utc().isoformat().replace("+00:00", "Z")
     return {
         "matches": FIXTURE,
-        "deadlines_utc": all_phase_deadlines(),
+        "match_deadlines_utc": all_match_deadlines(),
+        "final_pick_deadline_utc": fp_dl,
     }
 
 

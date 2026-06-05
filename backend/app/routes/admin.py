@@ -1,9 +1,12 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_admin
 from ..database import get_db
+from ..deadlines import get_match_kickoff_utc
 from ..fixtures import FIXTURE_BY_ID, TEAMS
 from ..limiter import limiter
 from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
@@ -29,6 +32,13 @@ def upsert_official_result(
 ):
     if match_id not in FIXTURE_BY_ID:
         raise HTTPException(status_code=404, detail=f"match_id no existe: {match_id}")
+
+    kickoff = get_match_kickoff_utc(match_id)
+    if datetime.now(timezone.utc) < kickoff:
+        raise HTTPException(
+            status_code=403,
+            detail="No podés cargar resultado de un partido que no se jugó todavía",
+        )
 
     existing = db.get(OfficialResult, match_id)
     if existing is None:

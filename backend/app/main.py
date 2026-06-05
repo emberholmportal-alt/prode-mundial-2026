@@ -20,6 +20,7 @@ from .routes import (
     fixtures_routes,
     leaderboard,
     predictions,
+    results_routes,
 )
 
 load_dotenv()
@@ -72,6 +73,7 @@ app.include_router(final_pick.router, prefix="/api")
 app.include_router(leaderboard.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(fixtures_routes.router, prefix="/api")
+app.include_router(results_routes.router, prefix="/api")
 
 
 @app.get("/health")
