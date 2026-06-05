@@ -1,0 +1,111 @@
+from datetime import datetime
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    SmallInteger,
+    String,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .database import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), nullable=False, server_default=func.now()
+    )
+
+    predictions: Mapped[list["Prediction"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
+    )
+    final_pick: Mapped["FinalPick | None"] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True, uselist=False
+    )
+
+
+class Prediction(Base):
+    __tablename__ = "predictions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "match_id", name="uq_predictions_user_match"),
+        CheckConstraint("home_score >= 0 AND home_score <= 20", name="ck_predictions_home_range"),
+        CheckConstraint("away_score >= 0 AND away_score <= 20", name="ck_predictions_away_range"),
+        Index("ix_predictions_match_id", "match_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    match_id: Mapped[str] = mapped_column(String(10), nullable=False)
+    home_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    away_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user: Mapped[User] = relationship(back_populates="predictions")
+
+
+class OfficialResult(Base):
+    __tablename__ = "official_results"
+
+    match_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    home_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    away_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class FinalPick(Base):
+    __tablename__ = "final_picks"
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    champion: Mapped[str] = mapped_column(String(3), nullable=False)
+    runner_up: Mapped[str] = mapped_column(String(3), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    user: Mapped[User] = relationship(back_populates="final_pick")
+
+
+class OfficialFinal(Base):
+    __tablename__ = "official_final"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_official_final_singleton"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    champion: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    runner_up: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
