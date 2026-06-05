@@ -98,7 +98,7 @@
   .logo-text small {
     display: block;
     font-size: 10px;
-    color: var(--dorado);
+    color: #ffffff;
     letter-spacing: 2.5px;
     margin-top: 3px;
   }
@@ -1081,6 +1081,66 @@
   /* === CONFETTI === */
   .confetti-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 9000; }
 
+  /* === 3-COL APP SHELL: sidebars + content === */
+  .app-shell {
+    display: flex; gap: 16px;
+    max-width: 1500px; margin: 0 auto;
+    padding: 0 16px;
+    align-items: flex-start;
+  }
+  .app-shell .container { flex: 1; min-width: 0; }
+  .sidebar {
+    width: 280px; flex-shrink: 0;
+    position: sticky; top: 12px;
+    max-height: calc(100vh - 24px);
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .sidebar-right { width: 340px; }
+  .side-block {
+    background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+    padding: 12px 12px 10px;
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .side-title {
+    font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(255,138,76,0.85); font-weight: 800; margin-bottom: 8px;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .side-title .dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #ff3838;
+    animation: liveDot 1.2s ease-in-out infinite;
+  }
+  .upcoming-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 7px 0; font-size: 12.5px;
+  }
+  .upcoming-row + .upcoming-row { border-top: 1px solid rgba(255,255,255,0.05); }
+  .upcoming-teams { font-weight: 700; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upcoming-countdown { font-size: 11px; color: #d6e394; font-weight: 800; white-space: nowrap; }
+  .side-empty { font-size: 12px; color: rgba(255,255,255,0.45); text-align: center; padding: 14px 0; }
+
+  /* Sidebar right: comments inline */
+  .comments-side { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+  .comments-side .comments-header { padding: 4px 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; }
+  .comments-side .comments-header h3 { margin: 0; font-size: 13px; letter-spacing: 2px; color: #ffd0a8; }
+  .comments-side .comments-list { flex: 1; overflow-y: auto; padding: 0 2px; display: flex; flex-direction: column; gap: 10px; min-height: 100px; max-height: calc(100vh - 220px); }
+  .comments-side .comments-form { padding: 8px 0 0; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 8px; }
+
+  /* Tabs visibles solo en mobile */
+  .tab.mobile-only { display: none; }
+
+  @media (max-width: 1099px) {
+    .sidebar { display: none; }
+    .tab.mobile-only { display: inline-flex; }
+    .app-shell { padding: 0; }
+  }
+  /* Cuando estamos en mobile y la vista 'comments'/'live' está activa,
+     el contenedor del tab usa todo el ancho */
+  .tab-fullview { padding: 12px 16px; }
+  .tab-fullview .comments-side { height: 70vh; }
+  .tab-fullview .comments-list { max-height: 60vh; }
+
   /* === SPLASH / INTRO (logo GG CUP + botón Entrar + música) === */
   .splash-overlay {
     position: fixed; inset: 0; z-index: 9999;
@@ -1158,21 +1218,6 @@
 
 <div id="app"></div>
 <div id="toast" class="toast"></div>
-
-<button id="commentsFab" class="comments-fab" type="button" hidden aria-label="Comentarios">
-  💬<span class="badge" id="commentsBadge" hidden></span>
-</button>
-<aside id="commentsPanel" class="comments-panel" aria-hidden="true">
-  <div class="comments-header">
-    <h3>💬 Comentarios</h3>
-    <button class="comments-close" id="commentsClose" type="button" aria-label="Cerrar">✕</button>
-  </div>
-  <div class="comments-list" id="commentsList"></div>
-  <form class="comments-form" id="commentsForm">
-    <textarea id="commentInput" placeholder="Escribí algo…" maxlength="500" rows="2"></textarea>
-    <button type="submit" id="commentSend">Enviar</button>
-  </form>
-</aside>
 
 <script>
 // =================================================================
@@ -1967,6 +2012,8 @@ function renderApp() {
         </div>
         <div class="logo-divider"></div>
         <img src="${GG_LOGO}" class="logo-gg" alt="Grupo Gestión">
+        <div class="logo-divider"></div>
+        <img src="/assets/logo-carrefour.png" class="logo-gg" alt="Carrefour">
       </div>
       <div class="user-info">
         <span class="user-badge">👤 ${u.display_name || u.username}</span>
@@ -1981,10 +2028,16 @@ function renderApp() {
     <button class="tab ${state.view === 'campeon' ? 'active' : ''}" data-view="campeon">🏆 Campeón</button>
     <button class="tab ${state.view === 'ranking' ? 'active' : ''}" data-view="ranking">📊 Ranking</button>
     <button class="tab ${state.view === 'reglas' ? 'active' : ''}" data-view="reglas">📋 Reglas</button>
+    <button class="tab mobile-only ${state.view === 'live' ? 'active' : ''}" data-view="live">🔴 En Vivo</button>
+    <button class="tab mobile-only ${state.view === 'comments' ? 'active' : ''}" data-view="comments">💬 Coments</button>
     ${isAdmin ? `<button class="tab ${state.view === 'admin' ? 'active' : ''}" data-view="admin">⚙️ Admin</button>` : ''}
   </div>
 
-  <div class="container fade-in" id="content"></div>`;
+  <div class="app-shell">
+    <aside class="sidebar sidebar-left" id="sidebarLeft" aria-label="Partidos en vivo y próximos"></aside>
+    <div class="container fade-in" id="content"></div>
+    <aside class="sidebar sidebar-right" id="sidebarRight" aria-label="Comentarios"></aside>
+  </div>`;
 }
 
 async function bindApp() {
@@ -2002,6 +2055,7 @@ async function bindApp() {
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => { state.view = t.dataset.view; renderContent(); };
   });
+  mountSidebars();
   await renderContent();
 }
 
@@ -2024,8 +2078,13 @@ async function renderContent() {
   else if (state.view === 'ranking') c.innerHTML = renderRanking();
   else if (state.view === 'reglas') c.innerHTML = renderReglas();
   else if (state.view === 'admin') c.innerHTML = renderAdmin();
+  else if (state.view === 'live') c.innerHTML = '<div class="tab-fullview" data-live-content></div>';
+  else if (state.view === 'comments') c.innerHTML = '<div class="tab-fullview" data-comments-content></div>';
 
   bindContent();
+  // Re-poblar slots (sidebars en desktop + tab content en mobile)
+  mountLeftSidebar();
+  mountRightSidebar();
 }
 
 // =================================================================
@@ -2103,8 +2162,6 @@ function renderFixture() {
   }
 
   return `
-  ${renderLiveWidget()}
-
   <div class="stats-bar">
     <div class="stat-card"><div class="stat-value">${myPoints}</div><div class="stat-label">Mis Puntos</div></div>
     <div class="stat-card"><div class="stat-value">${predicted}</div><div class="stat-label">Pronosticados</div></div>
@@ -2937,9 +2994,10 @@ function confetti(opts = {}) {
 }
 
 // =================================================================
-// LIVE WIDGET
+// LIVE + UPCOMING (sidebar izquierdo y tab "En Vivo" en mobile)
 // =================================================================
 let _livePollTimer = null;
+const _UPCOMING_LIMIT = 5;
 
 function _formatCountdown(ms) {
   if (ms <= 0) return 'arrancando...';
@@ -2958,69 +3016,100 @@ function _teamNameOrCode(code) {
   return (TEAMS[code] && TEAMS[code].name) || code;
 }
 
-function renderLiveWidget() {
+function _upcomingMatches(limit = _UPCOMING_LIMIT) {
+  const now = Date.now();
+  const arr = [];
+  for (const m of FIXTURE) {
+    const ko = new Date(m.datetime_utc.replace('Z', '+00:00')).getTime();
+    if (ko > now) arr.push({ m, ko });
+  }
+  arr.sort((a, b) => a.ko - b.ko);
+  return arr.slice(0, limit);
+}
+
+function _liveAndUpcomingHTML() {
   const data = state.live;
-  if (!data) return '';
+  let liveHtml = '';
+  let next = data ? data.next_match : null;
 
-  // Cruce: si hay remote_matches con status IN_PLAY/LIVE/PAUSED, los priorizamos
-  const remoteLive = (data.remote_matches || []).filter(m =>
-    ['IN_PLAY', 'PAUSED', 'LIVE'].includes((m.status || '').toUpperCase())
-  );
-
-  let html = '';
+  const remoteLive = data
+    ? (data.remote_matches || []).filter(m => ['IN_PLAY','PAUSED','LIVE'].includes((m.status||'').toUpperCase()))
+    : [];
 
   if (remoteLive.length > 0) {
-    html += `<div class="live-widget">
-      <div class="live-widget-title"><span class="dot"></span> EN VIVO AHORA</div>`;
+    liveHtml = `<div class="side-block">
+      <div class="side-title"><span class="dot"></span> En vivo ahora</div>`;
     remoteLive.forEach(m => {
-      const score = (m.home_score != null && m.away_score != null)
-        ? `${m.home_score} - ${m.away_score}` : '—';
-      html += `<div class="live-row">
-        <span class="live-teams">${m.home_name || m.home_tla || '?'} vs ${m.away_name || m.away_tla || '?'}</span>
+      const score = (m.home_score != null && m.away_score != null) ? `${m.home_score} - ${m.away_score}` : '—';
+      liveHtml += `<div class="live-row">
+        <span class="live-teams">${m.home_name || m.home_tla || '?'}<br>vs ${m.away_name || m.away_tla || '?'}</span>
         <span class="live-score">${score}</span>
         ${m.minute ? `<span class="live-minute">${m.minute}'</span>` : ''}
       </div>`;
     });
-    html += `</div>`;
-  } else if ((data.live_local || []).length > 0) {
-    html += `<div class="live-widget">
-      <div class="live-widget-title"><span class="dot"></span> SE ESTÁ JUGANDO</div>`;
+    liveHtml += `</div>`;
+  } else if (data && (data.live_local || []).length > 0) {
+    liveHtml = `<div class="side-block">
+      <div class="side-title"><span class="dot"></span> Se está jugando</div>`;
     data.live_local.forEach(m => {
-      html += `<div class="live-row">
+      liveHtml += `<div class="live-row">
         <span class="live-teams">${_teamNameOrCode(m.home)} vs ${_teamNameOrCode(m.away)}</span>
-        <span class="live-minute">~${m.minutes_in}' de juego</span>
+        <span class="live-minute">~${m.minutes_in}'</span>
       </div>`;
     });
-    if (data.remote_error || !data.remote_available) {
-      html += `<div style="font-size:10px;color:rgba(255,255,255,0.4);text-align:center;margin-top:4px;">marcador no disponible</div>`;
+    if (!data.remote_available) {
+      liveHtml += `<div style="font-size:10px;color:rgba(255,255,255,0.45);text-align:center;margin-top:4px;">marcador no disponible</div>`;
     }
-    html += `</div>`;
+    liveHtml += `</div>`;
   }
 
-  // Próximo partido — solo si NO hay nada en vivo
-  if (!html && data.next_match) {
-    const m = data.next_match;
-    const ko = new Date(m.datetime_utc.replace('Z', '+00:00'));
-    const ms = ko.getTime() - Date.now();
-    html = `<div class="live-widget next">
-      <div class="live-widget-title"><span class="dot"></span> PRÓXIMO PARTIDO</div>
-      <div class="live-row">
-        <span class="live-teams">${_teamNameOrCode(m.home)} vs ${_teamNameOrCode(m.away)}</span>
-        <span class="live-countdown">${_formatCountdown(ms)}</span>
+  // Próximos partidos (siempre, separado del live)
+  const upcoming = _upcomingMatches(_UPCOMING_LIMIT);
+  let upHtml = '';
+  if (upcoming.length > 0) {
+    upHtml = `<div class="side-block">
+      <div class="side-title">📅 Próximos partidos</div>`;
+    upcoming.forEach(({ m, ko }) => {
+      const ms = ko - Date.now();
+      upHtml += `<div class="upcoming-row">
+        <span class="upcoming-teams">${_teamNameOrCode(m.home)} vs ${_teamNameOrCode(m.away)}</span>
+        <span class="upcoming-countdown">${_formatCountdown(ms)}</span>
+      </div>`;
+    });
+    upHtml += `</div>`;
+  } else {
+    upHtml = `<div class="side-block"><div class="side-empty">No quedan partidos por jugar.</div></div>`;
+  }
+
+  if (!liveHtml && next) {
+    // sin live "real": ponemos al próximo destacado en el bloque de live
+    const ko = new Date(next.datetime_utc.replace('Z','+00:00')).getTime();
+    const ms = ko - Date.now();
+    liveHtml = `<div class="side-block">
+      <div class="side-title" style="color:#d6e394;">⏳ Próximo</div>
+      <div class="upcoming-row">
+        <span class="upcoming-teams">${_teamNameOrCode(next.home)} vs ${_teamNameOrCode(next.away)}</span>
+        <span class="upcoming-countdown">${_formatCountdown(ms)}</span>
       </div>
     </div>`;
   }
-  return html;
+
+  return liveHtml + upHtml;
 }
+
+function mountLeftSidebar() {
+  document.querySelectorAll('[data-live-content]').forEach(el => {
+    el.innerHTML = _liveAndUpcomingHTML();
+  });
+}
+
+// Compatibilidad: si quedó alguna referencia vieja, devolvemos vacío
+function renderLiveWidget() { return ''; }
 
 async function loadLive() {
   try {
     state.live = await apiFetch('/api/live');
-    if (state.view === 'fixture') {
-      // re-render solo si estamos viendo el fixture y no estamos editando algo
-      const c = document.getElementById('content');
-      if (c && state.editingMatches.size === 0) renderContent();
-    }
+    mountLeftSidebar();
   } catch (e) { /* silent */ }
 }
 
@@ -3034,51 +3123,69 @@ function stopLivePolling() {
 }
 
 // =================================================================
-// COMMENTS PANEL
+// COMMENTS (sidebar derecho y tab "Coments" en mobile)
 // =================================================================
 let _commentsPollTimer = null;
 
-function renderCommentsList() {
-  const list = document.getElementById('commentsList');
-  if (!list) return;
+function _commentsListHTML() {
   const items = state.comments || [];
   if (items.length === 0) {
-    list.innerHTML = '<div style="color:rgba(255,255,255,0.4);text-align:center;padding:30px 0;font-size:12px;">No hay comentarios todavía. Sé el primero.</div>';
-    return;
+    return '<div class="side-empty">No hay comentarios todavía. Sé el primero.</div>';
   }
-  list.innerHTML = items.map(c => {
+  return items.map(c => {
     const time = new Date(c.created_at + (c.created_at.endsWith('Z') ? '' : 'Z'));
     const when = time.toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
     const tags = [
-      `<span class="comment-tag">${c.sector || ''}</span>`,
+      c.sector ? `<span class="comment-tag">${c.sector}</span>` : '',
       companyTag(c.company),
       cityTag(c.city)
     ].filter(Boolean).join(' ');
+    const safe = (c.body || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
     return `<div class="comment-card">
       <div class="comment-head">
         <span class="comment-name">${c.display_name || c.username}</span>
         ${tags}
         <span class="comment-meta">${when}</span>
       </div>
-      <div class="comment-body">${(c.body || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]))}</div>
+      <div class="comment-body">${safe}</div>
     </div>`;
   }).join('');
 }
 
-function _updateCommentsBadge() {
-  const badge = document.getElementById('commentsBadge');
-  if (!badge) return;
-  const newest = state.comments[0] ? state.comments[0].id : 0;
-  const unread = state.comments.filter(c => c.id > state.commentsLastSeenId).length;
-  if (unread > 0 && !state.commentsOpen) {
-    badge.textContent = unread > 99 ? '99+' : String(unread);
-    badge.hidden = false;
-  } else {
-    badge.hidden = true;
-  }
-  if (state.commentsOpen && newest > state.commentsLastSeenId) {
-    state.commentsLastSeenId = newest;
-    try { localStorage.setItem('prode_comments_last', String(newest)); } catch (e) {}
+function renderCommentsList() {
+  const html = _commentsListHTML();
+  document.querySelectorAll('[data-comments-list]').forEach(el => { el.innerHTML = html; });
+  _trackCommentsSeen();
+}
+
+function _commentsBlockHTML() {
+  return `<div class="side-block comments-side">
+    <div class="comments-header"><h3>💬 Comentarios</h3></div>
+    <div class="comments-list" data-comments-list>${_commentsListHTML()}</div>
+    <form class="comments-form" data-comments-form>
+      <textarea data-comment-input placeholder="Escribí algo…" maxlength="500" rows="2"></textarea>
+      <button type="submit" data-comment-send>Enviar</button>
+    </form>
+  </div>`;
+}
+
+function mountRightSidebar() {
+  document.querySelectorAll('[data-comments-content]').forEach(el => {
+    el.innerHTML = _commentsBlockHTML();
+  });
+  bindCommentsForms();
+  _trackCommentsSeen();
+}
+
+function _trackCommentsSeen() {
+  if (state.view === 'comments' || window.matchMedia('(min-width: 1100px)').matches) {
+    // Si los comentarios están visibles (sidebar desktop o tab activo en mobile),
+    // marcamos como vistos el último id conocido.
+    const newest = state.comments[0] ? state.comments[0].id : 0;
+    if (newest > state.commentsLastSeenId) {
+      state.commentsLastSeenId = newest;
+      try { localStorage.setItem('prode_comments_last', String(newest)); } catch (e) {}
+    }
   }
 }
 
@@ -3086,15 +3193,13 @@ async function loadComments() {
   try {
     state.comments = await apiFetch('/api/comments?limit=100') || [];
     renderCommentsList();
-    _updateCommentsBadge();
   } catch (e) { /* silent */ }
 }
 
 async function postComment(body) {
   const trimmed = (body || '').trim();
   if (!trimmed) return;
-  const btn = document.getElementById('commentSend');
-  if (btn) btn.disabled = true;
+  document.querySelectorAll('[data-comment-send]').forEach(b => b.disabled = true);
   try {
     const created = await apiFetch('/api/comments', {
       method: 'POST',
@@ -3102,59 +3207,33 @@ async function postComment(body) {
     });
     state.comments.unshift(created);
     renderCommentsList();
-    _updateCommentsBadge();
-    const input = document.getElementById('commentInput');
-    if (input) input.value = '';
+    document.querySelectorAll('[data-comment-input]').forEach(i => { i.value = ''; });
   } catch (e) {
     showToast(e.message || 'Error al enviar comentario', 'error');
   } finally {
-    if (btn) btn.disabled = false;
+    document.querySelectorAll('[data-comment-send]').forEach(b => b.disabled = false);
   }
 }
 
-function openComments() {
-  state.commentsOpen = true;
-  const panel = document.getElementById('commentsPanel');
-  if (panel) { panel.classList.add('open'); panel.setAttribute('aria-hidden', 'false'); }
-  if (state.comments[0]) {
-    state.commentsLastSeenId = state.comments[0].id;
-    try { localStorage.setItem('prode_comments_last', String(state.commentsLastSeenId)); } catch (e) {}
-  }
-  _updateCommentsBadge();
-}
-function closeComments() {
-  state.commentsOpen = false;
-  const panel = document.getElementById('commentsPanel');
-  if (panel) { panel.classList.remove('open'); panel.setAttribute('aria-hidden', 'true'); }
-}
-
-function bindComments() {
-  const fab = document.getElementById('commentsFab');
-  if (fab && !fab._bound) {
-    fab._bound = true;
-    fab.addEventListener('click', () => state.commentsOpen ? closeComments() : openComments());
-  }
-  const close = document.getElementById('commentsClose');
-  if (close && !close._bound) { close._bound = true; close.addEventListener('click', closeComments); }
-  const form = document.getElementById('commentsForm');
-  if (form && !form._bound) {
+function bindCommentsForms() {
+  document.querySelectorAll('[data-comments-form]').forEach(form => {
+    if (form._bound) return;
     form._bound = true;
     form.addEventListener('submit', (e) => {
       e.preventDefault();
-      const input = document.getElementById('commentInput');
+      const input = form.querySelector('[data-comment-input]');
       postComment(input ? input.value : '');
     });
-  }
-  const input = document.getElementById('commentInput');
-  if (input && !input._bound) {
-    input._bound = true;
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        postComment(input.value);
-      }
-    });
-  }
+    const input = form.querySelector('[data-comment-input]');
+    if (input) {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          postComment(input.value);
+        }
+      });
+    }
+  });
 }
 
 function startCommentsPolling() {
@@ -3166,15 +3245,18 @@ function stopCommentsPolling() {
   if (_commentsPollTimer) { clearInterval(_commentsPollTimer); _commentsPollTimer = null; }
 }
 
-function showCommentsFab() {
-  const fab = document.getElementById('commentsFab');
-  if (fab) fab.hidden = false;
-  bindComments();
-}
-function hideCommentsFab() {
-  const fab = document.getElementById('commentsFab');
-  if (fab) fab.hidden = true;
-  closeComments();
+// =================================================================
+// SIDEBARS — montaje
+// =================================================================
+function mountSidebars() {
+  // Re-inyecta contenido en los slots fijos (desktop) o nada (los slots no existen en
+  // pantallas chicas donde sidebars están display:none — el contenido entra como tab)
+  const left = document.getElementById('sidebarLeft');
+  if (left) left.innerHTML = `<div data-live-content></div>`;
+  const right = document.getElementById('sidebarRight');
+  if (right) right.innerHTML = `<div data-comments-content style="display:flex;flex-direction:column;flex:1;min-height:0;"></div>`;
+  mountLeftSidebar();
+  mountRightSidebar();
 }
 
 // =================================================================
@@ -3183,12 +3265,10 @@ function hideCommentsFab() {
 function startBackgroundPolling() {
   startLivePolling();
   startCommentsPolling();
-  showCommentsFab();
 }
 function stopBackgroundPolling() {
   stopLivePolling();
   stopCommentsPolling();
-  hideCommentsFab();
 }
 
 // =================================================================
