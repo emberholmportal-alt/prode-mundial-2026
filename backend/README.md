@@ -58,8 +58,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env                # editar valores
 
-# Generar y aplicar la migración inicial (la primera vez):
-alembic revision --autogenerate -m "initial"
+# Aplicar la migración inicial (la primera vez):
 alembic upgrade head
 
 # Levantar la app:
