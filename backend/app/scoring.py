@@ -1,6 +1,5 @@
 CHAMPION_POINTS = 10
 RUNNER_UP_POINTS = 5
-SWAPPED_FINALISTS_BONUS = 2
 EXACT_POINTS = 3
 RESULT_POINTS = 1
 
@@ -35,10 +34,4 @@ def calc_final_points(
         pts += CHAMPION_POINTS
     if pick_runner_up == real_runner_up:
         pts += RUNNER_UP_POINTS
-    swapped = (
-        pick_champion == real_runner_up
-        and pick_runner_up == real_champion
-    )
-    if swapped:
-        pts += SWAPPED_FINALISTS_BONUS
     return pts
