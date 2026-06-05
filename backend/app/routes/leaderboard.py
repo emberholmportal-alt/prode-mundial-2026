@@ -1,24 +1,25 @@
 import threading
 import time
-from typing import Any
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..limiter import limiter
-from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
+from ..models import COMPANIES, FinalPick, OfficialFinal, OfficialResult, Prediction, User
 from ..scoring import calc_final_points
 
 router = APIRouter(prefix="/leaderboard", tags=["leaderboard"])
 
 _CACHE_TTL_SECONDS = 30
-_cache: dict[str, Any] = {"at": 0.0, "payload": None}
+# key "general" o nombre de empresa
+_cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()
 
 
-def _compute_leaderboard(db: Session) -> list[dict]:
+def _compute_leaderboard(db: Session, company: Optional[str]) -> list[dict]:
     exact_case = case(
         (
             and_(
@@ -119,7 +120,11 @@ def _compute_leaderboard(db: Session) -> list[dict]:
             fp.user_id: fp for fp in db.scalars(select(FinalPick)).all()
         }
 
-    users = db.scalars(select(User)).all()
+    users_stmt = select(User)
+    if company:
+        users_stmt = users_stmt.where(User.company == company)
+    users = db.scalars(users_stmt).all()
+
     rows: list[dict] = []
     for u in users:
         scored = scored_by_user.get(u.id, {"points": 0, "correct_exact": 0, "correct_result": 0})
@@ -138,6 +143,7 @@ def _compute_leaderboard(db: Session) -> list[dict]:
             {
                 "username": u.username,
                 "display_name": u.display_name,
+                "company": u.company,
                 "points": total,
                 "predicted_count": predicted_by_user.get(u.id, 0),
                 "correct_exact": scored["correct_exact"],
@@ -151,16 +157,24 @@ def _compute_leaderboard(db: Session) -> list[dict]:
 
 @router.get("")
 @limiter.limit("120/minute")
-def leaderboard(request: Request, db: Session = Depends(get_db)):
+def leaderboard(
+    request: Request,
+    company: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    if company is not None and company not in COMPANIES:
+        raise HTTPException(status_code=400, detail="company inválida")
+
+    key = company or "general"
     now = time.monotonic()
     with _cache_lock:
-        if _cache["payload"] is not None and (now - _cache["at"]) < _CACHE_TTL_SECONDS:
-            return _cache["payload"]
+        entry = _cache.get(key)
+        if entry and (now - entry["at"]) < _CACHE_TTL_SECONDS:
+            return entry["payload"]
 
-    payload = _compute_leaderboard(db)
+    payload = _compute_leaderboard(db, company)
 
     with _cache_lock:
-        _cache["at"] = time.monotonic()
-        _cache["payload"] = payload
+        _cache[key] = {"at": time.monotonic(), "payload": payload}
 
     return payload

@@ -18,7 +18,7 @@ backend/
 ├── app/
 │   ├── main.py              # FastAPI app, CORS, frontend estático, /health
 │   ├── database.py          # engine, SessionLocal, Base, get_db
-│   ├── models.py            # User, Prediction, OfficialResult, FinalPick, OfficialFinal
+│   ├── models.py            # User (con dni/email/sector/company), Prediction, OfficialResult, FinalPick, OfficialFinal
 │   ├── schemas.py           # Pydantic v2
 │   ├── auth.py              # bcrypt + JWT + dependencias
 │   ├── fixtures.py          # FIXTURE (104 partidos) + TEAMS (48 selecciones)
@@ -78,9 +78,9 @@ Frontend en `http://localhost:8000/`, docs en `/docs`, healthcheck en `/health`.
 ## Endpoints
 
 Auth (`/api/auth/*`, rate-limit 5/min en register y login):
-- `POST /api/auth/register` — crea usuario. Se vuelve admin si el username está en `ADMIN_USERNAMES`.
+- `POST /api/auth/register` — crea usuario. Payload: `username`, `password`, `display_name`, `dni`, `email`, `sector`, `company` (`grupo_gestion` o `carrefour`). Se vuelve admin si el username está en `ADMIN_USERNAMES`. 409 si dni/email/username duplicado.
 - `POST /api/auth/login`
-- `GET  /api/auth/me`
+- `GET  /api/auth/me` — devuelve la vista privada del usuario (incluye `dni`, `email`, `sector`).
 
 Predictions (`/api/predictions/*`, 60/min):
 - `GET /api/predictions/me`
@@ -90,8 +90,10 @@ Final pick (`/api/final-pick/*`, 60/min):
 - `GET /api/final-pick/me`
 - `PUT /api/final-pick` — deadline = inicio de semifinales.
 
-Leaderboard (120/min, cache 30s):
-- `GET /api/leaderboard`
+Leaderboard (120/min, cache 30s por filtro):
+- `GET /api/leaderboard` — todos los participantes (general).
+- `GET /api/leaderboard?company=grupo_gestion` — sólo GG.
+- `GET /api/leaderboard?company=carrefour` — sólo Carrefour.
 
 Admin (`/api/admin/*`, 30/min, requiere `is_admin`):
 - `POST   /api/admin/result/{match_id}`
@@ -99,6 +101,7 @@ Admin (`/api/admin/*`, 30/min, requiere `is_admin`):
 - `POST   /api/admin/final`
 - `DELETE /api/admin/final`
 - `GET    /api/admin/stats`
+- `GET    /api/admin/users` — lista todos los usuarios con campos privados (dni, email, sector, company).
 
 Fixtures (público):
 - `GET /api/fixtures` — partidos + deadlines UTC por fase
