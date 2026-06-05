@@ -14,6 +14,7 @@ class UserOut(BaseModel):
     display_name: str
     is_admin: bool
     company: str
+    city: str
     created_at: datetime
 
 
@@ -33,6 +34,7 @@ class RegisterIn(BaseModel):
     email: EmailStr
     sector: str = Field(min_length=2, max_length=100)
     company: Literal["grupo_gestion", "carrefour"]
+    city: Literal["isidro_casanova", "esteban_echeverria"]
 
 
 class LoginIn(BaseModel):
@@ -102,10 +104,26 @@ class LeaderboardRow(BaseModel):
     username: str
     display_name: str
     company: str
+    city: str
     points: int
     predicted_count: int
     correct_exact: int
     correct_result: int
+
+
+class CommentIn(BaseModel):
+    body: str = Field(min_length=1, max_length=500)
+
+
+class CommentOut(BaseModel):
+    id: int
+    username: str
+    display_name: str
+    sector: str
+    company: str
+    city: str
+    body: str
+    created_at: datetime
 
 
 class AdminStats(BaseModel):

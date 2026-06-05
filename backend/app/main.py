@@ -16,9 +16,11 @@ from .limiter import limiter
 from .routes import (
     admin,
     auth_routes,
+    comments_routes,
     final_pick,
     fixtures_routes,
     leaderboard,
+    live_routes,
     predictions,
     results_routes,
 )
@@ -74,6 +76,8 @@ app.include_router(leaderboard.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(fixtures_routes.router, prefix="/api")
 app.include_router(results_routes.router, prefix="/api")
+app.include_router(comments_routes.router, prefix="/api")
+app.include_router(live_routes.router, prefix="/api")
 
 
 @app.get("/health")
