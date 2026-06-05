@@ -17,6 +17,7 @@ from .database import Base
 
 
 COMPANIES = ("grupo_gestion", "carrefour")
+CITIES = ("isidro_casanova", "esteban_echeverria")
 
 
 class User(Base):
@@ -28,7 +29,12 @@ class User(Base):
             "company IN ('grupo_gestion', 'carrefour')",
             name="ck_users_company",
         ),
+        CheckConstraint(
+            "city IN ('isidro_casanova', 'esteban_echeverria')",
+            name="ck_users_city",
+        ),
         Index("ix_users_company", "company"),
+        Index("ix_users_city", "city"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -40,6 +46,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(200), nullable=False)
     sector: Mapped[str] = mapped_column(String(100), nullable=False)
     company: Mapped[str] = mapped_column(String(20), nullable=False)
+    city: Mapped[str] = mapped_column(String(30), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), nullable=False, server_default=func.now()
     )
@@ -49,6 +56,9 @@ class User(Base):
     )
     final_pick: Mapped["FinalPick | None"] = relationship(
         back_populates="user", cascade="all, delete-orphan", passive_deletes=True, uselist=False
+    )
+    comments: Mapped[list["Comment"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -125,3 +135,22 @@ class OfficialFinal(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    __table_args__ = (
+        CheckConstraint("char_length(body) BETWEEN 1 AND 500", name="ck_comments_body_len"),
+        Index("ix_comments_created_at", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    body: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), nullable=False, server_default=func.now()
+    )
+
+    user: Mapped[User] = relationship(back_populates="comments")

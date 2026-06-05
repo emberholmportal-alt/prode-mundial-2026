@@ -50,6 +50,7 @@ def register(request: Request, payload: RegisterIn, db: Session = Depends(get_db
         email=email,
         sector=sector,
         company=payload.company,
+        city=payload.city,
     )
     db.add(user)
     try:
