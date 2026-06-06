@@ -2105,15 +2105,21 @@ function renderApp() {
     </div>
   </div>
 
-  <div class="tabs">
-    <button class="tab ${state.view === 'fixture' ? 'active' : ''}" data-view="fixture">⚽ Fixture</button>
+  ${(() => {
+    const fp = state.cache && state.cache.finalPick || {};
+    const needPick = !(fp.champion && fp.runnerUp);
+    const tip = needPick ? 'Primero tenés que elegir Campeón y Subcampeón en la pestaña 🏆' : '';
+    const tipAttr = (v) => needPick && v ? ` title="${tip}" data-needpick="1"` : '';
+    return `<div class="tabs">
+    <button class="tab ${state.view === 'fixture' ? 'active' : ''}" data-view="fixture"${tipAttr(true)}>⚽ Fixture</button>
     <button class="tab ${state.view === 'campeon' ? 'active' : ''}" data-view="campeon">🏆 Campeón</button>
     <button class="tab ${state.view === 'ranking' ? 'active' : ''}" data-view="ranking">📊 Ranking</button>
     <button class="tab ${state.view === 'reglas' ? 'active' : ''}" data-view="reglas">📋 Reglas</button>
     <button class="tab mobile-only ${state.view === 'live' ? 'active' : ''}" data-view="live">🔴 En Vivo</button>
     <button class="tab mobile-only ${state.view === 'comments' ? 'active' : ''}" data-view="comments">💬 Coments</button>
     ${isAdmin ? `<button class="tab ${state.view === 'admin' ? 'active' : ''}" data-view="admin">⚙️ Admin</button>` : ''}
-  </div>
+  </div>`;
+  })()}
 
   <div class="app-shell">
     <aside class="sidebar sidebar-left" id="sidebarLeft" aria-label="Partidos en vivo y próximos"></aside>
@@ -2431,10 +2437,11 @@ function renderCampeon() {
   // Lista ordenada alfabéticamente
   const teamList = Object.keys(TEAMS).sort((a, b) => TEAMS[a].name.localeCompare(TEAMS[b].name));
 
-  function teamOptions(selectedCode) {
+  function teamOptions(selectedCode, excludeCode) {
     return teamList.map(code => {
       const t = TEAMS[code];
-      return `<option value="${code}" ${selectedCode === code ? 'selected' : ''}>${t.name}</option>`;
+      const disabled = excludeCode && code === excludeCode ? ' disabled' : '';
+      return `<option value="${code}" ${selectedCode === code ? 'selected' : ''}${disabled}>${t.name}${disabled ? ' — ya elegido' : ''}</option>`;
     }).join('');
   }
 
@@ -2512,7 +2519,7 @@ function renderCampeon() {
     ${canEdit ? `<div class="champion-select-wrap">
       <select id="selectChampion">
         <option value="">-- Elegí tu campeón --</option>
-        ${teamOptions(myPick.champion)}
+        ${teamOptions(myPick.champion, myPick.runnerUp)}
       </select>
     </div>` : ''}
     ${myPick.champion
@@ -2531,7 +2538,7 @@ function renderCampeon() {
     ${canEdit ? `<div class="champion-select-wrap">
       <select id="selectRunnerUp">
         <option value="">-- Elegí tu subcampeón --</option>
-        ${teamOptions(myPick.runnerUp)}
+        ${teamOptions(myPick.runnerUp, myPick.champion)}
       </select>
     </div>` : ''}
     ${myPick.runnerUp
@@ -2539,9 +2546,12 @@ function renderCampeon() {
       : (locked ? selectionDisplay(null, 'No elegiste', null) : '')}
   </div>
 
-  ${canEdit ? `<div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px;">
+  ${canEdit ? `<div class="champion-info-banner" style="border-color:rgba(255,210,63,0.4);background:rgba(255,210,63,0.06);color:#ffe5a3;">
+    💡 <span>Tenés que elegir <strong>Campeón Y Subcampeón</strong> (distintos entre sí) para poder cargar pronósticos del fixture. Podés cambiarlo hasta 1 hora antes del primer partido.</span>
+  </div>
+  <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:20px;">
     ${isEditing ? `<button class="btn-cancel" id="btnCancelFinal" style="padding:14px 24px;font-size:14px;">Cancelar</button>` : ''}
-    <button class="btn-primary" id="btnSaveFinal" style="max-width:300px;margin:0;display:block;">💾 GUARDAR ELECCIÓN</button>
+    <button class="btn-primary" id="btnSaveFinal" style="max-width:300px;margin:0;display:block;" title="Guardá tu elección de campeón y subcampeón para habilitar el fixture">💾 GUARDAR ELECCIÓN</button>
   </div>` : ''}
   ${showModify ? `<div style="display:flex;justify-content:center;margin-top:20px;">
     <button class="btn-modify" id="btnModifyFinal" style="padding:12px 22px;font-size:13px;">✏️ Modificar elección</button>
@@ -2570,18 +2580,15 @@ async function saveFinalPick() {
       method: 'PUT',
       body: JSON.stringify({ champion, runner_up: runnerUp })
     });
-    const wasFirstPick = !(state.cache.finalPick && state.cache.finalPick.champion);
     state.cache.finalPick = { champion: res.champion, runnerUp: res.runner_up };
     state.editingMatches.delete('final');
     await refreshLeaderboard();
-    confetti({ intensity: 'big' });
-    if (wasFirstPick) {
-      // Primera vez que guarda: ahora ya puede cargar predicciones, lo mandamos al Fixture
-      state.view = 'fixture';
-      showToast('🏆 ¡Listo! Ahora podés cargar tus pronósticos.');
-    } else {
-      showToast('🏆 ¡Campeón y subcampeón guardados!');
-    }
+    // Confetti con los colores de la bandera del campeón elegido
+    confetti({ intensity: 'big', colors: _teamColors(res.champion) });
+    // Siempre llevamos al usuario al Fixture después de guardar la elección
+    state.view = 'fixture';
+    const champName = (TEAMS[res.champion] && TEAMS[res.champion].name) || res.champion;
+    showToast(`🏆 ¡Listo! Tu campeón: ${champName}. Ahora cargá tus pronósticos.`);
     renderContent();
   } catch (e) {
     showToast(e.message || 'Error al guardar', 'error');
@@ -3025,6 +3032,18 @@ function bindContent() {
     });
   });
 
+  // Sincronizar exclusión mutua entre los selects de campeón y subcampeón
+  const selChamp = document.getElementById('selectChampion');
+  const selRun = document.getElementById('selectRunnerUp');
+  function _syncFinalSelects() {
+    if (!selChamp || !selRun) return;
+    const c = selChamp.value, r = selRun.value;
+    [...selChamp.options].forEach(o => { o.disabled = !!o.value && o.value === r; });
+    [...selRun.options].forEach(o => { o.disabled = !!o.value && o.value === c; });
+  }
+  if (selChamp) selChamp.addEventListener('change', _syncFinalSelects);
+  if (selRun) selRun.addEventListener('change', _syncFinalSelects);
+
   const btnSaveFinal = document.getElementById('btnSaveFinal');
   if (btnSaveFinal) btnSaveFinal.onclick = saveFinalPick;
   const btnModifyFinal = document.getElementById('btnModifyFinal');
@@ -3060,6 +3079,74 @@ const CONFETTI_PALETTES = {
   // Bienvenida al prode: celeste + blanco (argentinos)
   prode: ['#74acdf','#a9e4ff','#7cd7ff','#dff3ff','#ffffff','#f5fbff','#e0f4ff','#aac8e4']
 };
+
+// Colores de bandera por selección (las 48 del Mundial)
+const TEAM_COLORS = {
+  // Grupo A
+  MEX: ['#006847','#ffffff','#ce1126'],
+  RSA: ['#de3831','#007749','#ffb612','#001489','#ffffff'],
+  KOR: ['#cd2e3a','#0047a0','#ffffff'],
+  CZE: ['#11457e','#d7141a','#ffffff'],
+  // Grupo B
+  CAN: ['#d80621','#ffffff'],
+  BIH: ['#002395','#fecb00'],
+  QAT: ['#8d1b3d','#ffffff'],
+  SUI: ['#dc1f2e','#ffffff'],
+  // Grupo C
+  BRA: ['#fedf00','#009b3a','#002776'],
+  MAR: ['#c1272d','#006233'],
+  HAI: ['#00209f','#d21034'],
+  SCO: ['#005eb8','#ffffff'],
+  // Grupo D
+  USA: ['#bf0a30','#ffffff','#002868'],
+  PAR: ['#d52b1e','#ffffff','#0038a8'],
+  AUS: ['#ffcd00','#007a33','#00247d'],
+  TUR: ['#e30a17','#ffffff'],
+  // Grupo E
+  GER: ['#000000','#dd0000','#ffce00'],
+  CUW: ['#002b7f','#f9e814','#ffffff'],
+  CIV: ['#f77f00','#ffffff','#009e60'],
+  ECU: ['#ffd100','#0072ce','#ed1c24'],
+  // Grupo F
+  NED: ['#ff6c00','#21468b','#ffffff'],
+  JPN: ['#bc002d','#ffffff'],
+  SWE: ['#006aa7','#fecc00'],
+  TUN: ['#e70013','#ffffff'],
+  // Grupo G
+  BEL: ['#000000','#fae042','#ed2939'],
+  EGY: ['#ce1126','#ffffff','#000000','#c09300'],
+  IRN: ['#239f40','#ffffff','#da0000'],
+  NZL: ['#000000','#ffffff','#00247d','#cc142b'],
+  // Grupo H
+  ESP: ['#aa151b','#f1bf00'],
+  CPV: ['#003893','#ffffff','#cf2027'],
+  KSA: ['#006c35','#ffffff'],
+  URU: ['#7eb6e4','#ffffff','#ffcc00'],
+  // Grupo I
+  FRA: ['#002395','#ffffff','#ed2939'],
+  SEN: ['#00853f','#fdef42','#e31b23'],
+  IRQ: ['#ce1126','#ffffff','#000000','#007a3d'],
+  NOR: ['#ef2b2d','#ffffff','#002868'],
+  // Grupo J
+  ARG: ['#74acdf','#ffffff','#fcbf49'],
+  ALG: ['#006233','#ffffff','#d21034'],
+  AUT: ['#ed2939','#ffffff'],
+  JOR: ['#000000','#ffffff','#009639','#ce1126'],
+  // Grupo K
+  POR: ['#ff0000','#006600','#ffffff'],
+  COD: ['#007fff','#f7d618','#ce1021'],
+  UZB: ['#1eb53a','#0099b5','#ffffff'],
+  COL: ['#fcd116','#003893','#ce1126'],
+  // Grupo L
+  ENG: ['#ffffff','#ce1124'],
+  CRO: ['#ff0000','#ffffff','#0093dd'],
+  GHA: ['#ce1126','#fcd116','#006b3f','#000000'],
+  PAN: ['#dc060e','#ffffff','#005aa7']
+};
+
+function _teamColors(code) {
+  return TEAM_COLORS[code] || CONFETTI_PALETTES.default;
+}
 
 function confetti(opts = {}) {
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
