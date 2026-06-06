@@ -1153,6 +1153,18 @@
   .upcoming-countdown { font-size: 11px; color: #d6e394; font-weight: 800; white-space: nowrap; }
   .side-empty { font-size: 12px; color: rgba(255,255,255,0.45); text-align: center; padding: 14px 0; }
 
+  /* Cronograma Argentina */
+  .arg-match {
+    padding: 9px 0 9px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+  }
+  .arg-match:first-of-type { border-top: none; padding-top: 4px; }
+  .arg-match-teams { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 3px; }
+  .arg-match-teams strong { color: #74acdf; }
+  .arg-match-meta { font-size: 11px; color: rgba(255,255,255,0.6); }
+  .arg-match-tv { font-size: 10.5px; color: #d6e394; margin-top: 2px; letter-spacing: 0.3px; }
+  .arg-match-note { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 8px; font-style: italic; line-height: 1.35; }
+
   /* Sidebar right: comments inline */
   .comments-side { display: flex; flex-direction: column; min-height: 0; height: 100%; }
   .comments-side .comments-header { padding: 4px 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; }
@@ -1624,6 +1636,26 @@ function isPhaseLocked(phase) {
   return Date.now() >= dl.getTime();
 }
 
+// Deadline del campeón/subcampeón = 1h antes del primer partido del Mundial.
+// Usa la respuesta del backend; si aún no está, calcula local.
+function finalPickDeadline() {
+  const iso = state.cache && state.cache.finalPickDeadlineUtc;
+  if (iso) return new Date(iso);
+  let earliest = null;
+  for (const m of FIXTURE) {
+    const ko = (typeof _matchKickoffMs === 'function')
+      ? _matchKickoffMs(m)
+      : new Date(`${m.date}T${m.time || '00:00'}:00-03:00`).getTime();
+    if (Number.isFinite(ko) && (earliest === null || ko < earliest)) earliest = ko;
+  }
+  return earliest === null ? null : new Date(earliest - 60 * 60 * 1000);
+}
+
+function isFinalPickLocked() {
+  const dl = finalPickDeadline();
+  return dl ? Date.now() >= dl.getTime() : false;
+}
+
 // Formatea un Date como "dom 11 jun · 16:00 hs"
 function fmtDeadline(d) {
   if (!d) return '';
@@ -1903,8 +1935,8 @@ async function handleLogin() {
     setToken(res.access_token);
     localStorage.setItem('prode_user', JSON.stringify(res.user));
     state.currentUser = res.user;
-    state.view = 'fixture';
     await loadAppData();
+    _routeAfterLoad();
     startBackgroundPolling();
     showToast('¡Bienvenido, ' + (res.user.display_name || res.user.username) + '!');
     confetti({ intensity: 'big', palette: 'prode' });
@@ -1981,10 +2013,10 @@ async function handleRegister() {
     setToken(res.access_token);
     localStorage.setItem('prode_user', JSON.stringify(res.user));
     state.currentUser = res.user;
-    state.view = 'fixture';
     state.regCompany = null;
     state.regCity = null;
     await loadAppData();
+    _routeAfterLoad();
     startBackgroundPolling();
     showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
     confetti({ intensity: 'big', palette: 'prode' });
@@ -2008,6 +2040,8 @@ async function loadAppData() {
       apiFetch('/api/leaderboard')
     ]);
     state.cache.deadlinesUtc = (fixturesData && fixturesData.deadlines_utc) || {};
+    state.cache.matchDeadlinesUtc = (fixturesData && fixturesData.match_deadlines_utc) || {};
+    state.cache.finalPickDeadlineUtc = fixturesData && fixturesData.final_pick_deadline_utc;
 
     const predMap = {};
     (predictions || []).forEach(p => {
@@ -2147,6 +2181,20 @@ function renderFixture() {
   const u = state.currentUser;
   const predictions = state.cache.predictions;
   const officialResults = state.cache.officialResults;
+  const fp = state.cache.finalPick || {};
+  const hasFinalPick = !!(fp.champion && fp.runnerUp);
+
+  if (!hasFinalPick) {
+    return `<div class="empty-state" style="padding:48px 24px;">
+      <span class="icon">🏆</span>
+      <h2 style="margin:0 0 10px;font-size:18px;letter-spacing:1.5px;color:#ffd0a8;">PRIMERO ELEGÍ CAMPEÓN Y SUBCAMPEÓN</h2>
+      <p style="font-size:13px;color:rgba(255,255,255,0.7);max-width:420px;margin:0 auto 18px;line-height:1.5;">
+        No podés cargar pronósticos de partidos hasta que elijas <strong>Campeón</strong> y <strong>Subcampeón</strong>.
+        Tenés tiempo hasta <strong>1 hora antes del primer partido</strong> para cambiarlo.
+      </p>
+      <button class="btn-primary" id="goToCampeon" style="max-width:280px;margin:0 auto;display:block;">🏆 Ir a Campeón</button>
+    </div>`;
+  }
 
   // Puntos: el backend los manda en /api/leaderboard (cache de la fila propia)
   const myPoints = state.cache.myStats ? state.cache.myStats.points : 0;
@@ -2371,7 +2419,7 @@ function renderCampeon() {
   // Cerrado por resultado oficial cargado por admin
   const lockedByAdmin = !!(officialFinal.champion || officialFinal.runnerUp);
   // Cerrado por tiempo: el backend usa el inicio de semifinales como deadline del final pick
-  const lockedByTime = isPhaseLocked('semis');
+  const lockedByTime = isFinalPickLocked();
   const locked = lockedByAdmin || lockedByTime;
   // ¿Está en modo edición? — usamos la misma key 'final' en editingMatches
   const isEditing = state.editingMatches.has('final');
@@ -2432,12 +2480,12 @@ function renderCampeon() {
   let stateBanner = '';
   if (lockedByTime && !lockedByAdmin) {
     stateBanner = `<div class="phase-locked-banner">
-      🔒 <span><strong>Elección cerrada:</strong> empezaron las semifinales.</span>
+      🔒 <span><strong>Elección cerrada:</strong> el Mundial está por empezar.</span>
     </div>`;
   } else if (!locked) {
-    const dl = phaseDeadline('semis');
+    const dl = finalPickDeadline();
     stateBanner = `<div class="champion-info-banner">
-      🎯 <span>Elegí tu <strong>Campeón (+${PTS_CAMPEON} pts)</strong> y <strong>Subcampeón (+${PTS_SUBCAMPEON} pts)</strong>. ${dl ? `Cierra el <strong>${fmtDeadline(dl)}</strong>` : ''}.</span>
+      🎯 <span>Elegí tu <strong>Campeón (+${PTS_CAMPEON} pts)</strong> y <strong>Subcampeón (+${PTS_SUBCAMPEON} pts)</strong>. Podés cambiarlo hasta <strong>1 hora antes del primer partido</strong>${dl ? ` (${fmtDeadline(dl)})` : ''}.</span>
     </div>`;
   }
 
@@ -2502,8 +2550,8 @@ function renderCampeon() {
 }
 
 async function saveFinalPick() {
-  if (isPhaseLocked('semis')) {
-    showToast('Las semifinales ya empezaron, no podés modificar', 'error');
+  if (isFinalPickLocked()) {
+    showToast('Ya cerró: pasó 1h antes del primer partido', 'error');
     state.editingMatches.delete('final');
     renderContent();
     return;
@@ -2522,11 +2570,18 @@ async function saveFinalPick() {
       method: 'PUT',
       body: JSON.stringify({ champion, runner_up: runnerUp })
     });
+    const wasFirstPick = !(state.cache.finalPick && state.cache.finalPick.champion);
     state.cache.finalPick = { champion: res.champion, runnerUp: res.runner_up };
     state.editingMatches.delete('final');
     await refreshLeaderboard();
     confetti({ intensity: 'big' });
-    showToast('🏆 ¡Campeón y subcampeón guardados!');
+    if (wasFirstPick) {
+      // Primera vez que guarda: ahora ya puede cargar predicciones, lo mandamos al Fixture
+      state.view = 'fixture';
+      showToast('🏆 ¡Listo! Ahora podés cargar tus pronósticos.');
+    } else {
+      showToast('🏆 ¡Campeón y subcampeón guardados!');
+    }
     renderContent();
   } catch (e) {
     showToast(e.message || 'Error al guardar', 'error');
@@ -2974,7 +3029,7 @@ function bindContent() {
   if (btnSaveFinal) btnSaveFinal.onclick = saveFinalPick;
   const btnModifyFinal = document.getElementById('btnModifyFinal');
   if (btnModifyFinal) btnModifyFinal.onclick = () => {
-    if (isPhaseLocked('semis')) { showToast('Las semifinales ya empezaron', 'error'); return; }
+    if (isFinalPickLocked()) { showToast('Ya cerró la elección de campeón', 'error'); return; }
     state.editingMatches.add('final');
     renderContent();
   };
@@ -2985,6 +3040,8 @@ function bindContent() {
   };
   const btnSaveFinalOfficial = document.getElementById('btnSaveFinalOfficial');
   if (btnSaveFinalOfficial) btnSaveFinalOfficial.onclick = saveOfficialFinal;
+  const goToCampeon = document.getElementById('goToCampeon');
+  if (goToCampeon) goToCampeon.onclick = () => { state.view = 'campeon'; renderContent(); };
 }
 
 // =================================================================
@@ -3007,8 +3064,8 @@ const CONFETTI_PALETTES = {
 function confetti(opts = {}) {
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const intensity = opts.intensity || 'small';
-  const N = intensity === 'big' ? 220 : 80;
-  const duration = intensity === 'big' ? 3400 : 2000;
+  const N = intensity === 'big' ? 360 : 140;
+  const duration = intensity === 'big' ? 4500 : 2600;
   const canvas = document.createElement('canvas');
   canvas.className = 'confetti-canvas';
   canvas.width = innerWidth; canvas.height = innerHeight;
@@ -3022,21 +3079,21 @@ function confetti(opts = {}) {
   } else {
     colors = CONFETTI_PALETTES.default;
   }
-  const cx = canvas.width / 2;
-  const cy = intensity === 'big' ? canvas.height / 2 : canvas.height * 0.4;
+  // Distribución FULL-SCREEN: partículas caen desde arriba del viewport en
+  // todo el ancho. Da sensación de "papelitos en toda la pantalla".
+  const W = canvas.width, H = canvas.height;
+  const spread = intensity === 'big' ? H * 0.9 : H * 0.4;
   const parts = [];
   for (let i = 0; i < N; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const speed = (Math.random() * 0.7 + 0.4) * (intensity === 'big' ? 16 : 11);
     parts.push({
-      x: cx + (Math.random()-0.5)*40,
-      y: cy + (Math.random()-0.5)*30,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed - (intensity === 'big' ? 4 : 2),
-      g: 0.38 + Math.random()*0.25,
+      x: Math.random() * W,
+      y: -20 - Math.random() * spread,
+      vx: (Math.random() - 0.5) * 4,
+      vy: 1.5 + Math.random() * (intensity === 'big' ? 4.5 : 3.5),
+      g: 0.05 + Math.random() * 0.06,
       r: 4 + Math.random()*5,
       rot: Math.random()*Math.PI*2,
-      vr: (Math.random()-0.5)*0.4,
+      vr: (Math.random()-0.5)*0.35,
       color: colors[Math.floor(Math.random()*colors.length)],
       shape: Math.random() < 0.55 ? 'rect' : 'circle',
     });
@@ -3172,7 +3229,44 @@ function _liveAndUpcomingHTML() {
     </div>`;
   }
 
-  return liveHtml + upHtml;
+  return liveHtml + upHtml + _argentinaScheduleHTML();
+}
+
+// Cronograma de Argentina en fase de grupos con canales de TV en ARG
+const ARG_TV_CHANNELS = 'TV Pública · DSports · Telefe';
+function _argentinaScheduleHTML() {
+  const argGroup = FIXTURE.filter(m =>
+    m.phase === 'grupos' && (m.home === 'ARG' || m.away === 'ARG')
+  ).sort((a, b) => {
+    const ta = a.date + 'T' + (a.time || '00:00');
+    const tb = b.date + 'T' + (b.time || '00:00');
+    return ta.localeCompare(tb);
+  });
+  if (argGroup.length === 0) return '';
+
+  const fmtDate = (m) => {
+    const d = new Date(`${m.date}T${m.time || '00:00'}:00-03:00`);
+    return d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' });
+  };
+
+  let html = `<div class="side-block">
+    <div class="side-title">🇦🇷 Argentina en el Mundial</div>`;
+  argGroup.forEach(m => {
+    const home = _teamNameOrCode(m.home);
+    const away = _teamNameOrCode(m.away);
+    const argIsHome = m.home === 'ARG';
+    const teams = argIsHome
+      ? `<strong>${home}</strong> vs ${away}`
+      : `${home} vs <strong>${away}</strong>`;
+    html += `<div class="arg-match">
+      <div class="arg-match-teams">${teams}</div>
+      <div class="arg-match-meta">📅 ${fmtDate(m)} · 🕐 ${m.time || '?'} hs (ART)</div>
+      <div class="arg-match-tv">📺 ${ARG_TV_CHANNELS}</div>
+    </div>`;
+  });
+  html += `<div class="arg-match-note">Los partidos de eliminación se confirman si Argentina avanza. Canales según derechos confirmados.</div>`;
+  html += `</div>`;
+  return html;
 }
 
 function mountLeftSidebar() {
@@ -3350,14 +3444,19 @@ function stopBackgroundPolling() {
 // =================================================================
 // INIT — validar token y cargar datos antes de renderizar
 // =================================================================
+function _routeAfterLoad() {
+  const fp = state.cache.finalPick || {};
+  state.view = (fp.champion && fp.runnerUp) ? 'fixture' : 'campeon';
+}
+
 async function appBoot() {
   const token = getToken();
   if (!token) { render(); return; }
   try {
     const user = await apiFetch('/api/auth/me');
     state.currentUser = user;
-    state.view = 'fixture';
     await loadAppData();
+    _routeAfterLoad();
     startBackgroundPolling();
   } catch (e) {
     clearAuth();
