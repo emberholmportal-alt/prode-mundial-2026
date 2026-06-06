@@ -23,7 +23,7 @@ JWT_EXPIRES_DAYS = 7
 if not JWT_SECRET or len(JWT_SECRET) < 32:
     raise RuntimeError("JWT_SECRET no está definida o tiene menos de 32 caracteres")
 
-_admin_csv = os.environ.get("ADMIN_USERNAMES", "ariel_admin")
+_admin_csv = os.environ.get("ADMIN_USERNAMES", "ariel_admin,ariel_flores")
 ADMIN_USERNAMES = {u.strip().lower() for u in _admin_csv.split(",") if u.strip()}
 
 USERNAME_RE = re.compile(r"^[a-z0-9_]{3,30}$")

@@ -114,11 +114,10 @@
     filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
     opacity: 0.95;
   }
-  /* El logo de Carrefour es casi cuadrado: lo escalamos un poco más alto
+  /* El logo de Carrefour es casi cuadrado: lo escalamos a más alto
      que el de GG (que es muy alargado por el texto) para que se vean parejos */
   .logo-carrefour {
-    height: 56px; width: auto;
-    background: #fff; padding: 4px 8px; border-radius: 6px;
+    height: 72px; width: auto;
     filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
   }
   .user-info {
@@ -458,10 +457,9 @@
   }
   .company-option img { height: 56px; max-width: 100%; object-fit: contain; }
   /* El logo de Carrefour es casi cuadrado: para equiparar visualmente al de GG,
-     forzamos un ancho mínimo similar y fondo blanco para que respire en el card. */
+     forzamos un alto mayor (el PNG sigue siendo el original, no recortado). */
   .company-option img[alt="Carrefour"] {
-    height: 80px; max-width: 80%;
-    background: #fff; padding: 6px 14px; border-radius: 8px;
+    height: 96px; max-width: 90%;
   }
   .company-option .company-name { font-size: 12px; letter-spacing: 0.6px; text-transform: uppercase; color: rgba(255,255,255,0.85); font-weight: 700; }
   .company-option:hover { border-color: rgba(255,138,76,0.55); opacity: 0.9; }
@@ -958,7 +956,7 @@
     .logo-text { font-size: 18px; }
     .logo-img { height: 40px; }
     .logo-gg { height: 28px; }
-    .logo-carrefour { height: 42px; padding: 3px 6px; }
+    .logo-carrefour { height: 52px; }
     .logo-divider { height: 32px; }
     .powered-by-logo { height: 30px; }
     .stats-bar { grid-template-columns: repeat(2, 1fr); }
@@ -1094,6 +1092,23 @@
 
   /* === CONFETTI === */
   .confetti-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 9000; }
+
+  /* Shake + borde rojo para campo en error (ej: username ya tomado) */
+  .field-error-flash {
+    border-color: #ff3838 !important;
+    box-shadow: 0 0 0 3px rgba(255,56,56,0.25) !important;
+    animation: fieldShake 0.45s ease;
+  }
+  @keyframes fieldShake {
+    0%,100% { transform: translateX(0); }
+    20% { transform: translateX(-6px); }
+    40% { transform: translateX(6px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .field-error-flash { animation: none; }
+  }
 
   /* === 3-COL APP SHELL: sidebars + content === */
   .app-shell {
@@ -1847,10 +1862,13 @@ function bindAuth() {
     }
     document.querySelectorAll('.company-option').forEach(opt => {
       opt.onclick = () => {
-        if (state.regCompany !== opt.dataset.company) {
-          state.regCompany = opt.dataset.company;
+        const company = opt.dataset.company;
+        const changed = state.regCompany !== company;
+        if (changed) {
+          state.regCompany = company;
           state.regCity = null; // forzar re-elección de sede al cambiar empresa
         }
+        if (changed) confetti({ intensity: 'small', palette: company });
         _reRenderRegPreservingInputs();
       };
     });
@@ -1889,6 +1907,7 @@ async function handleLogin() {
     await loadAppData();
     startBackgroundPolling();
     showToast('¡Bienvenido, ' + (res.user.display_name || res.user.username) + '!');
+    confetti({ intensity: 'big', palette: 'prode' });
     render();
   } catch (e) {
     showAlert(e.message || 'Error al ingresar');
@@ -1900,20 +1919,29 @@ async function handleLogin() {
 function mapRegisterError(e) {
   if (e && e.status === 409 && e.message) {
     const m = e.message.toLowerCase();
-    if (m.includes('dni')) return 'Ya hay alguien registrado con ese DNI';
-    if (m.includes('email')) return 'Ese email ya está en uso';
-    if (m.includes('username')) return 'Ese nombre de usuario ya existe, elegí otro';
-    return e.message;
+    if (m.includes('dni')) return { msg: 'Ya hay alguien registrado con ese DNI', field: 'regDni' };
+    if (m.includes('email')) return { msg: 'Ese email ya está en uso', field: 'regEmail' };
+    if (m.includes('username')) return { msg: '⚠️ Ese nombre de usuario ya está tomado, elegí otro', field: 'regUser' };
+    return { msg: e.message };
   }
   if (e && e.status === 422) {
     const errs = e.data && e.data.errors;
     if (Array.isArray(errs) && errs.length) {
       const first = errs[0];
       const field = (first.loc || []).slice(-1)[0] || 'campo';
-      return `Dato inválido en "${field}": ${first.msg}`;
+      return { msg: `Dato inválido en "${field}": ${first.msg}` };
     }
   }
-  return (e && e.message) || 'Error al registrar';
+  return { msg: (e && e.message) || 'Error al registrar' };
+}
+
+function flashFieldError(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('field-error-flash');
+  setTimeout(() => el.classList.remove('field-error-flash'), 1600);
+  try { el.focus({ preventScroll: true }); el.select && el.select(); } catch (e) {}
 }
 
 async function handleRegister() {
@@ -1959,11 +1987,13 @@ async function handleRegister() {
     await loadAppData();
     startBackgroundPolling();
     showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
+    confetti({ intensity: 'big', palette: 'prode' });
     render();
   } catch (e) {
-    const msg = mapRegisterError(e);
-    showAlert(msg);
-    showToast(msg, 'error');
+    const mapped = mapRegisterError(e);
+    showAlert(mapped.msg);
+    showToast(mapped.msg, 'error');
+    if (mapped.field) flashFieldError(mapped.field);
   } finally {
     if (reset) reset();
   }
@@ -2963,6 +2993,17 @@ function bindContent() {
 // =================================================================
 // CONFETTI
 // =================================================================
+// Paletas temáticas reutilizables
+const CONFETTI_PALETTES = {
+  default: ['#ff8a4c','#ffd0a8','#bacab8','#ff5f47','#ffd23f','#3aa9ff','#79e3a4','#e6479e'],
+  // Grupo Gestión: verde (lima) + naranja
+  grupo_gestion: ['#bacab8','#a3c293','#79e3a4','#5fc77e','#ff8a4c','#ffb98a','#ffd23f','#ffaa3a'],
+  // Carrefour: rojo + azul
+  carrefour: ['#e74c3c','#ff5f47','#c0392b','#ff3838','#3aa9ff','#1f6fb2','#0071ce','#1abcfe'],
+  // Bienvenida al prode: celeste + blanco (argentinos)
+  prode: ['#74acdf','#a9e4ff','#7cd7ff','#dff3ff','#ffffff','#f5fbff','#e0f4ff','#aac8e4']
+};
+
 function confetti(opts = {}) {
   if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const intensity = opts.intensity || 'small';
@@ -2973,7 +3014,14 @@ function confetti(opts = {}) {
   canvas.width = innerWidth; canvas.height = innerHeight;
   document.body.appendChild(canvas);
   const ctx = canvas.getContext('2d');
-  const colors = ['#ff8a4c','#ffd0a8','#bacab8','#ff5f47','#ffd23f','#3aa9ff','#79e3a4','#e6479e'];
+  let colors;
+  if (Array.isArray(opts.colors) && opts.colors.length) {
+    colors = opts.colors;
+  } else if (opts.palette && CONFETTI_PALETTES[opts.palette]) {
+    colors = CONFETTI_PALETTES[opts.palette];
+  } else {
+    colors = CONFETTI_PALETTES.default;
+  }
   const cx = canvas.width / 2;
   const cy = intensity === 'big' ? canvas.height / 2 : canvas.height * 0.4;
   const parts = [];

@@ -12,7 +12,12 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from sqlalchemy import update
+
+from .auth import ADMIN_USERNAMES
+from .database import SessionLocal
 from .limiter import limiter
+from .models import User
 from .routes import (
     admin,
     auth_routes,
@@ -38,6 +43,28 @@ CORS_ORIGINS = [
 
 
 app = FastAPI(title="Prode Mundial 2026", version="1.0.0")
+
+
+@app.on_event("startup")
+def _promote_admins_on_startup() -> None:
+    """Si un usuario ya registrado coincide con ADMIN_USERNAMES, asegurarnos
+    de que tenga is_admin=true. Útil cuando se agrega un username admin
+    nuevo en el env sin reset de la DB."""
+    if not ADMIN_USERNAMES:
+        return
+    db = SessionLocal()
+    try:
+        db.execute(
+            update(User)
+            .where(User.username.in_(ADMIN_USERNAMES))
+            .where(User.is_admin.is_(False))
+            .values(is_admin=True)
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
