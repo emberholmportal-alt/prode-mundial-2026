@@ -88,8 +88,8 @@
     display: block;
     font-family: 'Inter', sans-serif;
     font-size: 9px;
-    font-weight: 500;
-    color: rgba(186, 202, 72, 0.85);
+    font-weight: 700;
+    color: #000;
     letter-spacing: 1px;
     margin-top: 5px;
     font-style: italic;
@@ -113,6 +113,13 @@
     height: 36px; width: auto;
     filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
     opacity: 0.95;
+  }
+  /* El logo de Carrefour es casi cuadrado: lo escalamos un poco más alto
+     que el de GG (que es muy alargado por el texto) para que se vean parejos */
+  .logo-carrefour {
+    height: 56px; width: auto;
+    background: #fff; padding: 4px 8px; border-radius: 6px;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
   }
   .user-info {
     display: flex; align-items: center; gap: 10px; font-size: 14px;
@@ -450,6 +457,12 @@
     opacity: 0.6;
   }
   .company-option img { height: 56px; max-width: 100%; object-fit: contain; }
+  /* El logo de Carrefour es casi cuadrado: para equiparar visualmente al de GG,
+     forzamos un ancho mínimo similar y fondo blanco para que respire en el card. */
+  .company-option img[alt="Carrefour"] {
+    height: 80px; max-width: 80%;
+    background: #fff; padding: 6px 14px; border-radius: 8px;
+  }
   .company-option .company-name { font-size: 12px; letter-spacing: 0.6px; text-transform: uppercase; color: rgba(255,255,255,0.85); font-weight: 700; }
   .company-option:hover { border-color: rgba(255,138,76,0.55); opacity: 0.9; }
   .company-option.selected {
@@ -945,6 +958,7 @@
     .logo-text { font-size: 18px; }
     .logo-img { height: 40px; }
     .logo-gg { height: 28px; }
+    .logo-carrefour { height: 42px; padding: 3px 6px; }
     .logo-divider { height: 32px; }
     .powered-by-logo { height: 30px; }
     .stats-bar { grid-template-columns: repeat(2, 1fr); }
@@ -1088,7 +1102,11 @@
     padding: 0 16px;
     align-items: flex-start;
   }
-  .app-shell .container { flex: 1; min-width: 0; }
+  .app-shell .container {
+    flex: 1; min-width: 0;
+    max-width: none; margin: 0;
+    padding: 16px 8px 60px;
+  }
   .sidebar {
     width: 280px; flex-shrink: 0;
     position: sticky; top: 12px;
@@ -2013,7 +2031,7 @@ function renderApp() {
         <div class="logo-divider"></div>
         <img src="${GG_LOGO}" class="logo-gg" alt="Grupo Gestión">
         <div class="logo-divider"></div>
-        <img src="/assets/logo-carrefour.png" class="logo-gg" alt="Carrefour">
+        <img src="/assets/logo-carrefour.png" class="logo-carrefour" alt="Carrefour">
       </div>
       <div class="user-info">
         <span class="user-badge">👤 ${u.display_name || u.username}</span>
@@ -2055,8 +2073,13 @@ async function bindApp() {
   document.querySelectorAll('.tab').forEach(t => {
     t.onclick = () => { state.view = t.dataset.view; renderContent(); };
   });
-  mountSidebars();
-  await renderContent();
+  try { mountSidebars(); } catch (e) { console.error('mountSidebars failed:', e); }
+  try { await renderContent(); }
+  catch (e) {
+    console.error('renderContent failed:', e);
+    const c = document.getElementById('content');
+    if (c) c.innerHTML = `<div class="empty-state"><span class="icon">⚠️</span>Ocurrió un error mostrando esta vista.<br><small style="opacity:0.5">${(e && e.message) || ''}</small></div>`;
+  }
 }
 
 async function renderContent() {
@@ -3016,12 +3039,19 @@ function _teamNameOrCode(code) {
   return (TEAMS[code] && TEAMS[code].name) || code;
 }
 
+function _matchKickoffMs(m) {
+  // El FIXTURE local tiene date (YYYY-MM-DD) y time (HH:MM) en hora ARG (UTC-3).
+  // Si viniera del backend ya tendría datetime_utc; soportamos ambos.
+  if (m.datetime_utc) return new Date(m.datetime_utc.replace('Z', '+00:00')).getTime();
+  return new Date(`${m.date}T${m.time || '00:00'}:00-03:00`).getTime();
+}
+
 function _upcomingMatches(limit = _UPCOMING_LIMIT) {
   const now = Date.now();
   const arr = [];
   for (const m of FIXTURE) {
-    const ko = new Date(m.datetime_utc.replace('Z', '+00:00')).getTime();
-    if (ko > now) arr.push({ m, ko });
+    const ko = _matchKickoffMs(m);
+    if (Number.isFinite(ko) && ko > now) arr.push({ m, ko });
   }
   arr.sort((a, b) => a.ko - b.ko);
   return arr.slice(0, limit);
@@ -3083,7 +3113,7 @@ function _liveAndUpcomingHTML() {
 
   if (!liveHtml && next) {
     // sin live "real": ponemos al próximo destacado en el bloque de live
-    const ko = new Date(next.datetime_utc.replace('Z','+00:00')).getTime();
+    const ko = _matchKickoffMs(next);
     const ms = ko - Date.now();
     liveHtml = `<div class="side-block">
       <div class="side-title" style="color:#d6e394;">⏳ Próximo</div>
@@ -3178,14 +3208,12 @@ function mountRightSidebar() {
 }
 
 function _trackCommentsSeen() {
-  if (state.view === 'comments' || window.matchMedia('(min-width: 1100px)').matches) {
-    // Si los comentarios están visibles (sidebar desktop o tab activo en mobile),
-    // marcamos como vistos el último id conocido.
-    const newest = state.comments[0] ? state.comments[0].id : 0;
-    if (newest > state.commentsLastSeenId) {
-      state.commentsLastSeenId = newest;
-      try { localStorage.setItem('prode_comments_last', String(newest)); } catch (e) {}
-    }
+  const isDesktop = !!(window.matchMedia && window.matchMedia('(min-width: 1100px)').matches);
+  if (state.view !== 'comments' && !isDesktop) return;
+  const newest = (state.comments && state.comments[0]) ? state.comments[0].id : 0;
+  if (newest > state.commentsLastSeenId) {
+    state.commentsLastSeenId = newest;
+    try { localStorage.setItem('prode_comments_last', String(newest)); } catch (e) {}
   }
 }
 
