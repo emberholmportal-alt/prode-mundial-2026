@@ -1165,6 +1165,19 @@
   .arg-match-tv { font-size: 10.5px; color: #d6e394; margin-top: 2px; letter-spacing: 0.3px; }
   .arg-match-note { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 8px; font-style: italic; line-height: 1.35; }
 
+  /* Partidos de hoy */
+  .today-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 0; font-size: 12.5px;
+  }
+  .today-row + .today-row { border-top: 1px solid rgba(255,255,255,0.05); }
+  .today-teams { font-weight: 700; color: #fff; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .today-vs { color: rgba(255,255,255,0.45); font-weight: 500; font-size: 11px; margin: 0 3px; }
+  .today-status { font-size: 11px; font-weight: 800; white-space: nowrap; }
+  .today-live { color: #ff8a8a; animation: liveDot 1.4s ease-in-out infinite; }
+  .today-done { color: rgba(255,255,255,0.45); }
+  .today-upcoming { color: #d6e394; }
+
   /* Sidebar right: comments inline */
   .comments-side { display: flex; flex-direction: column; min-height: 0; height: 100%; }
   .comments-side .comments-header { padding: 4px 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; }
@@ -3316,7 +3329,60 @@ function _liveAndUpcomingHTML() {
     </div>`;
   }
 
-  return liveHtml + upHtml + _argentinaScheduleHTML();
+  return liveHtml + upHtml + _argentinaScheduleHTML() + _todayMatchesHTML();
+}
+
+// Partidos del día de hoy (en hora ARG)
+function _todayARTDate() {
+  // Fecha actual en formato YYYY-MM-DD según huso ART (UTC-3)
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date());
+  const get = (t) => parts.find(p => p.type === t).value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function _todayMatchesHTML() {
+  const today = _todayARTDate();
+  const todayMatches = FIXTURE
+    .filter(m => m.date === today)
+    .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+
+  if (todayMatches.length === 0) {
+    return `<div class="side-block">
+      <div class="side-title">📅 Partidos de hoy</div>
+      <div class="side-empty">No hay partidos hoy.</div>
+    </div>`;
+  }
+
+  const nowMs = Date.now();
+  const FINISHED_AFTER = 2 * 60 * 60 * 1000; // 2h después del kickoff
+  let html = `<div class="side-block">
+    <div class="side-title">📅 Partidos de hoy</div>`;
+  todayMatches.forEach(m => {
+    const home = _teamNameOrCode(m.home);
+    const away = _teamNameOrCode(m.away);
+    const koMs = _matchKickoffMs(m);
+    let status, statusClass;
+    if (nowMs >= koMs && nowMs < koMs + FINISHED_AFTER) {
+      const mins = Math.max(0, Math.floor((nowMs - koMs) / 60000));
+      status = `🔴 ~${mins}'`;
+      statusClass = 'today-live';
+    } else if (nowMs >= koMs + FINISHED_AFTER) {
+      status = '✓ Final';
+      statusClass = 'today-done';
+    } else {
+      status = `🕐 ${m.time || '?'} hs`;
+      statusClass = 'today-upcoming';
+    }
+    html += `<div class="today-row">
+      <div class="today-teams">${home} <span class="today-vs">vs</span> ${away}</div>
+      <div class="today-status ${statusClass}">${status}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  return html;
 }
 
 // Cronograma de Argentina en fase de grupos con canales de TV en ARG
