@@ -24,13 +24,16 @@ def is_match_locked(match_id: str) -> bool:
 
 
 def _compute_final_pick_deadline() -> datetime:
-    # Mismo criterio que un partido normal: cierra 1h antes del primer kickoff
-    # del Mundial (= deadline del primer partido del fixture).
-    first_kickoff = min(
+    # Deadline = kickoff exacto del primer partido de cuartos. Le damos a la
+    # gente toda la fase de grupos + 16vos + octavos para elegir campeón
+    # (evita que un usuario que se registra tarde quede lockeado del 412).
+    cuartos = [m for m in FIXTURE if m["phase"] == "cuartos"]
+    if not cuartos:
+        raise RuntimeError("No hay partidos de cuartos en el FIXTURE")
+    return min(
         datetime.fromisoformat(m["datetime_utc"].replace("Z", "+00:00"))
-        for m in FIXTURE
+        for m in cuartos
     )
-    return first_kickoff - MATCH_DEADLINE_OFFSET
 
 
 _FINAL_PICK_DEADLINE_UTC: datetime = _compute_final_pick_deadline()
