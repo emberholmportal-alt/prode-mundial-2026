@@ -147,6 +147,7 @@ def _compute_leaderboard(db: Session, company: Optional[str], city: Optional[str
                 "display_name": u.display_name,
                 "company": u.company,
                 "city": u.city,
+                "avatar_config": u.avatar_config,
                 "points": total,
                 "predicted_count": predicted_by_user.get(u.id, 0),
                 "correct_exact": scored["correct_exact"],

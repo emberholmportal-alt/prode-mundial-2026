@@ -8,6 +8,7 @@ from sqlalchemy import (
     Integer,
     SmallInteger,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
@@ -47,6 +48,7 @@ class User(Base):
     sector: Mapped[str] = mapped_column(String(100), nullable=False)
     company: Mapped[str] = mapped_column(String(20), nullable=False)
     city: Mapped[str] = mapped_column(String(30), nullable=False)
+    avatar_config: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), nullable=False, server_default=func.now()
     )

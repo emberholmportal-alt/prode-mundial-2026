@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserOut(BaseModel):
@@ -15,6 +15,7 @@ class UserOut(BaseModel):
     is_admin: bool
     company: str
     city: str
+    avatar_config: Optional[str] = None
     created_at: datetime
 
 
@@ -105,10 +106,37 @@ class LeaderboardRow(BaseModel):
     display_name: str
     company: str
     city: str
+    avatar_config: Optional[str] = None
     points: int
     predicted_count: int
     correct_exact: int
     correct_result: int
+
+
+_AVATAR_STYLES = {"avataaars"}
+
+
+class AvatarConfigIn(BaseModel):
+    style: str = Field(default="avataaars", max_length=30)
+    skin_color: Optional[str] = Field(default=None, max_length=20)
+    top: Optional[str] = Field(default=None, max_length=40)
+    hair_color: Optional[str] = Field(default=None, max_length=20)
+    facial_hair: Optional[str] = Field(default=None, max_length=40)
+    clothing: Optional[str] = Field(default=None, max_length=40)
+    accessories: Optional[str] = Field(default=None, max_length=40)
+    background_color: Optional[str] = Field(default=None, max_length=20)
+    seed: Optional[str] = Field(default=None, max_length=60)
+
+    @field_validator("style")
+    @classmethod
+    def _validate_style(cls, v: str) -> str:
+        if v not in _AVATAR_STYLES:
+            raise ValueError(f"Estilo de avatar no soportado: {v}")
+        return v
+
+
+class AvatarConfigOut(BaseModel):
+    avatar_config: Optional[str] = None
 
 
 class CommentIn(BaseModel):

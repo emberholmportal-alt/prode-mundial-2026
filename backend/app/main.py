@@ -26,6 +26,7 @@ from .routes import (
     fixtures_routes,
     leaderboard,
     live_routes,
+    me_routes,
     predictions,
     results_routes,
 )
@@ -105,6 +106,7 @@ app.include_router(fixtures_routes.router, prefix="/api")
 app.include_router(results_routes.router, prefix="/api")
 app.include_router(comments_routes.router, prefix="/api")
 app.include_router(live_routes.router, prefix="/api")
+app.include_router(me_routes.router, prefix="/api")
 
 
 @app.get("/health")
