@@ -71,6 +71,19 @@ def delete_official_result(
     db.commit()
 
 
+@router.get("/final", response_model=OfficialFinalOut)
+@limiter.limit("30/minute")
+def get_official_final(request: Request, db: Session = Depends(get_db)):
+    existing = db.get(OfficialFinal, 1)
+    if existing is None:
+        return OfficialFinalOut(champion=None, runner_up=None, updated_at=None)
+    return OfficialFinalOut(
+        champion=existing.champion,
+        runner_up=existing.runner_up,
+        updated_at=existing.updated_at,
+    )
+
+
 @router.post("/final", response_model=OfficialFinalOut)
 @limiter.limit("30/minute")
 def upsert_official_final(
