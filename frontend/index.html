@@ -852,6 +852,29 @@
     .results-audit-row { grid-template-columns: 1fr auto; row-gap: 4px; }
     .results-audit-when { grid-column: 1 / -1; font-size: 10px; }
   }
+  /* Auditoría de actividad por usuario */
+  .audit-users-list { display: flex; flex-direction: column; gap: 4px; }
+  .audit-users-row {
+    display: grid; grid-template-columns: 1.5fr 1fr 1.5fr; gap: 12px;
+    align-items: center;
+    padding: 8px 12px; font-size: 12.5px;
+    background: rgba(255,255,255,0.03); border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .audit-users-head {
+    background: transparent; border: none; padding: 2px 12px 4px;
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,0.5); font-weight: 700;
+  }
+  .audit-users-name { color: #fff; font-weight: 700; display: flex; flex-direction: column; min-width: 0; }
+  .audit-users-username { font-size: 10px; color: rgba(255,255,255,0.4); font-weight: 400; }
+  .audit-users-count { text-align: right; color: #ffd0a8; font-weight: 800; }
+  .audit-users-when { text-align: right; color: rgba(255,255,255,0.7); white-space: nowrap; font-size: 11.5px; }
+  @media (max-width: 600px) {
+    .audit-users-row { grid-template-columns: 1fr auto; row-gap: 4px; }
+    .audit-users-head { display: none; }
+    .audit-users-when { grid-column: 1 / -1; text-align: left; font-size: 10.5px; }
+  }
   .empty-state .icon {
     font-size: 56px; display: block; margin-bottom: 12px; opacity: 0.5;
   }
@@ -2298,7 +2321,9 @@ async function renderContent() {
 
   // Refrescar leaderboard al entrar al ranking (la cache del backend dura 30s igual)
   if (state.view === 'ranking') await refreshLeaderboard();
-  if (state.view === 'transparencia') await refreshResults();
+  if (state.view === 'transparencia') {
+    await Promise.all([refreshResults(), refreshAudit()]);
+  }
 
   if (state.view === 'fixture') c.innerHTML = renderFixture();
   else if (state.view === 'campeon') c.innerHTML = renderCampeon();
@@ -2904,6 +2929,19 @@ function renderReglas() {
 // TRANSPARENCIA
 // =================================================================
 const _resultsCache = { at: 0, payload: null };
+const _auditCache = { at: 0, payload: null };
+
+async function refreshAudit() {
+  if (_auditCache.payload && (Date.now() - _auditCache.at) < 30_000) return _auditCache.payload;
+  try {
+    const data = await apiFetch('/api/audit/users') || [];
+    _auditCache.at = Date.now();
+    _auditCache.payload = data;
+    return data;
+  } catch (e) {
+    return _auditCache.payload || [];
+  }
+}
 const _PHASE_LABELS = {
   grupos: 'Grupos', dieciseisavos: '16vos', octavos: 'Octavos',
   cuartos: 'Cuartos', semis: 'Semis', tercerpuesto: '3er Puesto', final: 'Final'
@@ -3060,7 +3098,7 @@ function renderTransparencia() {
 
   return `
   <div class="rules-card">
-    <div class="rules-title">🔒 ¿POR QUÉ PODÉS CONFIAR EN EL SISTEMA?</div>
+    <div class="rules-title">🔒 DETALLE DEL SISTEMA DE PRONÓSTICO</div>
     <div class="rule-item">
       <div class="rule-points">✓</div>
       <div><strong>Las predicciones se cierran 1 hora antes de cada partido.</strong> Después de ese momento, ni siquiera el admin puede modificarlas vía la app.</div>
@@ -3091,7 +3129,7 @@ function renderTransparencia() {
   <div class="rules-card">
     <div class="rules-title">📊 RESULTADOS OFICIALES CARGADOS</div>
     <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:12px;line-height:1.45;">
-      Cada vez que el admin carga un resultado oficial queda registrada la <strong>fecha y hora exacta</strong> de cuando se hizo. Si un resultado fuese modificado después de cargado, la fecha de carga cambia (queda evidencia). Si ves algo raro, decímelo en los comentarios o por privado.
+      Cada vez que el admin carga un resultado oficial queda registrada la <strong>fecha y hora exacta</strong> de cuando se hizo.
     </div>
     ${resultsHtml}
   </div>
@@ -3110,6 +3148,39 @@ function renderTransparencia() {
       <div class="rule-points">⚽</div>
       <div><strong>Resultados oficiales cargados:</strong> ${sortedResults.length} / 104</div>
     </div>
+  </div>
+
+  ${_renderAuditUsersHTML()}`;
+}
+
+function _renderAuditUsersHTML() {
+  const rows = _auditCache.payload || [];
+  let body;
+  if (rows.length === 0) {
+    body = `<div class="empty-state" style="padding:20px 12px;"><span class="icon">📋</span>Todavía no hay actividad para mostrar.</div>`;
+  } else {
+    body = `<div class="audit-users-list">
+      <div class="audit-users-row audit-users-head">
+        <span>Usuario</span>
+        <span style="text-align:right;">Predicciones</span>
+        <span style="text-align:right;">Última carga / modificación</span>
+      </div>
+      ${rows.map(r => `
+        <div class="audit-users-row">
+          <span class="audit-users-name">${(r.display_name || r.username)}<span class="audit-users-username">@${r.username}</span></span>
+          <span class="audit-users-count">${r.predictions_count}</span>
+          <span class="audit-users-when">${r.last_modified_at ? _fmtAuditTs(r.last_modified_at) : '—'}</span>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+  return `
+  <div class="rules-card">
+    <div class="rules-title">🕒 ÚLTIMA ACTIVIDAD POR USUARIO</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:12px;line-height:1.45;">
+      Cualquiera puede verificar acá la <strong>fecha y hora de la última carga o modificación</strong> de las predicciones de cada usuario. Si una fila muestra una modificación después del cierre de un partido (el deadline de cada partido es 1h antes del kickoff), es una pista de que algo se tocó por fuera. <strong>No se exponen las predicciones en sí, solo los timestamps.</strong>
+    </div>
+    ${body}
   </div>`;
 }
 
