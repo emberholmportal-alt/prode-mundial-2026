@@ -17,6 +17,7 @@ from ..schemas import (
     OfficialResultIn,
     OfficialResultOut,
     UserPrivateOut,
+    UserUpdateAdminIn,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(get_current_admin)])
@@ -147,3 +148,20 @@ def stats(request: Request, db: Session = Depends(get_db)):
 def list_users(request: Request, db: Session = Depends(get_db)):
     users = db.scalars(select(User).order_by(User.username)).all()
     return [UserPrivateOut.model_validate(u) for u in users]
+
+
+@router.patch("/users/{user_id}", response_model=UserPrivateOut)
+@limiter.limit("30/minute")
+def update_user(
+    request: Request,
+    user_id: int,
+    payload: UserUpdateAdminIn,
+    db: Session = Depends(get_db),
+):
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    user.display_name = payload.display_name.strip()
+    db.commit()
+    db.refresh(user)
+    return UserPrivateOut.model_validate(user)
