@@ -834,6 +834,24 @@
     text-align: center; padding: 40px 20px;
     color: rgba(255,255,255,0.4);
   }
+  /* Tabla de resultados oficiales con timestamps (Transparencia) */
+  .results-audit { display: flex; flex-direction: column; gap: 6px; }
+  .results-audit-row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    gap: 12px; align-items: center;
+    padding: 10px 12px;
+    background: rgba(255,255,255,0.035); border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .results-audit-match { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .results-audit-match strong { font-size: 13px; color: #fff; }
+  .results-audit-id { font-size: 10px; color: rgba(255,255,255,0.4); letter-spacing: 0.5px; }
+  .results-audit-score { font-weight: 900; font-size: 16px; color: #ffd0a8; white-space: nowrap; }
+  .results-audit-when { font-size: 11px; color: rgba(255,255,255,0.6); white-space: nowrap; }
+  @media (max-width: 600px) {
+    .results-audit-row { grid-template-columns: 1fr auto; row-gap: 4px; }
+    .results-audit-when { grid-column: 1 / -1; font-size: 10px; }
+  }
   .empty-state .icon {
     font-size: 56px; display: block; margin-bottom: 12px; opacity: 0.5;
   }
@@ -2149,6 +2167,8 @@ async function refreshMyStandings() {
       apiFetch('/api/leaderboard?company=' + encodeURIComponent(u.company)),
       apiFetch('/api/leaderboard?city=' + encodeURIComponent(u.city)),
     ]);
+    // Guardamos la lista general aparte para la pestaña de transparencia
+    state.cache.leaderboardGeneral = Array.isArray(general) ? general : [];
     const gen = _findMyRow(general, u.username);
     const com = _findMyRow(company, u.username);
     const cit = _findMyRow(city, u.username);
@@ -2226,6 +2246,7 @@ function renderApp() {
     <button class="tab ${state.view === 'campeon' ? 'active' : ''}" data-view="campeon">🏆 Campeón</button>
     <button class="tab ${state.view === 'ranking' ? 'active' : ''}" data-view="ranking">📊 Ranking</button>
     <button class="tab ${state.view === 'reglas' ? 'active' : ''}" data-view="reglas">📋 Reglas</button>
+    <button class="tab ${state.view === 'transparencia' ? 'active' : ''}" data-view="transparencia">🔒 Transparencia</button>
     <button class="tab mobile-only ${state.view === 'live' ? 'active' : ''}" data-view="live">🔴 En Vivo</button>
     <button class="tab mobile-only ${state.view === 'comments' ? 'active' : ''}" data-view="comments">💬 Coments</button>
     ${isAdmin ? `<button class="tab ${state.view === 'admin' ? 'active' : ''}" data-view="admin">⚙️ Admin</button>` : ''}
@@ -2277,11 +2298,13 @@ async function renderContent() {
 
   // Refrescar leaderboard al entrar al ranking (la cache del backend dura 30s igual)
   if (state.view === 'ranking') await refreshLeaderboard();
+  if (state.view === 'transparencia') await refreshResults();
 
   if (state.view === 'fixture') c.innerHTML = renderFixture();
   else if (state.view === 'campeon') c.innerHTML = renderCampeon();
   else if (state.view === 'ranking') c.innerHTML = renderRanking();
   else if (state.view === 'reglas') c.innerHTML = renderReglas();
+  else if (state.view === 'transparencia') c.innerHTML = renderTransparencia();
   else if (state.view === 'admin') c.innerHTML = renderAdmin();
   else if (state.view === 'live') c.innerHTML = '<div class="tab-fullview" data-live-content></div>';
   else if (state.view === 'comments') c.innerHTML = '<div class="tab-fullview" data-comments-content></div>';
@@ -2873,6 +2896,127 @@ function renderReglas() {
     <div class="rule-item">
       <div class="rule-points">⚽</div>
       <div><strong>Formato:</strong> 12 grupos de 4. Pasan los dos primeros + los 8 mejores terceros (32 a 16vos).</div>
+    </div>
+  </div>`;
+}
+
+// =================================================================
+// TRANSPARENCIA
+// =================================================================
+const REPO_URL = 'https://github.com/emberholmportal-alt/prode-mundial-2026';
+const _resultsCache = { at: 0, payload: null };
+
+async function refreshResults() {
+  if (_resultsCache.payload && (Date.now() - _resultsCache.at) < 30_000) return _resultsCache.payload;
+  try {
+    const data = await apiFetch('/api/results') || [];
+    _resultsCache.at = Date.now();
+    _resultsCache.payload = data;
+    return data;
+  } catch (e) {
+    return _resultsCache.payload || [];
+  }
+}
+
+function _fmtAuditTs(iso) {
+  if (!iso) return '—';
+  const s = iso.endsWith('Z') ? iso : (iso + 'Z');
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-AR', {
+    day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/Argentina/Buenos_Aires'
+  });
+}
+
+function _matchTeamsLabel(matchId) {
+  const m = FIXTURE.find(x => x.id === matchId);
+  if (!m) return matchId;
+  const h = (TEAMS[m.home] && TEAMS[m.home].name) || m.home;
+  const a = (TEAMS[m.away] && TEAMS[m.away].name) || m.away;
+  return `${h} vs ${a}`;
+}
+
+function renderTransparencia() {
+  const results = _resultsCache.payload || [];
+  const generalLb = state.cache.leaderboardGeneral || [];
+  const totalUsers = generalLb.length;
+  const totalPredictions = generalLb.reduce((s, r) => s + (r.predicted_count || 0), 0);
+
+  const sortedResults = results.slice().sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+
+  let resultsHtml;
+  if (sortedResults.length === 0) {
+    resultsHtml = `<div class="empty-state" style="padding:20px 12px;"><span class="icon">📋</span>Todavía no se cargó ningún resultado oficial.</div>`;
+  } else {
+    resultsHtml = `<div class="results-audit">
+      ${sortedResults.map(r => `
+        <div class="results-audit-row">
+          <div class="results-audit-match">
+            <strong>${_matchTeamsLabel(r.match_id)}</strong>
+            <span class="results-audit-id">${r.match_id}</span>
+          </div>
+          <div class="results-audit-score">${r.home_score} - ${r.away_score}</div>
+          <div class="results-audit-when">📅 Cargado: ${_fmtAuditTs(r.updated_at)}</div>
+        </div>
+      `).join('')}
+    </div>`;
+  }
+
+  return `
+  <div class="rules-card">
+    <div class="rules-title">🔒 ¿POR QUÉ PODÉS CONFIAR EN EL SISTEMA?</div>
+    <div class="rule-item">
+      <div class="rule-points">✓</div>
+      <div><strong>Las predicciones se cierran 1 hora antes de cada partido.</strong> Después de ese momento, ni siquiera el admin puede modificarlas vía la app.</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-points">✓</div>
+      <div><strong>El admin no puede modificar las predicciones de los usuarios.</strong> Los endpoints administrativos solo permiten cargar/borrar resultados oficiales, editar nombres mostrados y consultar listas. Cada predicción la toca únicamente el dueño desde su login personal.</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-points">✓</div>
+      <div><strong>El admin no puede cargar un resultado antes del kickoff.</strong> El servidor rechaza con error <code>403</code> cualquier intento de cargar el marcador de un partido que todavía no se jugó.</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-points">✓</div>
+      <div><strong>Los puntos se calculan automáticamente en la base de datos.</strong> No hay forma de ajustar puntos manualmente desde la app. Es matemática pura (SQL) comparando tu predicción con el resultado oficial.</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-points">📖</div>
+      <div><strong>El código fuente es público y auditable:</strong> <a href="${REPO_URL}" target="_blank" rel="noopener noreferrer" style="color:#ffd0a8;text-decoration:underline;">${REPO_URL.replace('https://','')}</a>. Cualquiera puede revisarlo, abrir issues o sugerir cambios.</div>
+    </div>
+  </div>
+
+  <div class="rules-card">
+    <div class="rules-title">📊 RESULTADOS OFICIALES CARGADOS</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.65);margin-bottom:12px;line-height:1.45;">
+      Cada vez que el admin carga un resultado oficial queda registrada la <strong>fecha y hora exacta</strong> de cuando se hizo. Si un resultado fuese modificado después de cargado, la fecha de carga cambia (queda evidencia). Si ves algo raro, decímelo en los comentarios o por privado.
+    </div>
+    ${resultsHtml}
+  </div>
+
+  <div class="rules-card">
+    <div class="rules-title">📈 ESTADÍSTICAS</div>
+    <div class="rule-item">
+      <div class="rule-points">👥</div>
+      <div><strong>Usuarios registrados:</strong> ${totalUsers}</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-points">📝</div>
+      <div><strong>Predicciones cargadas (entre todos):</strong> ${totalPredictions}</div>
+    </div>
+    <div class="rule-item">
+      <div class="rule-points">⚽</div>
+      <div><strong>Resultados oficiales cargados:</strong> ${sortedResults.length} / 104</div>
+    </div>
+  </div>
+
+  <div class="rules-card">
+    <div class="rules-title">🤝 LÍMITE HONESTO</div>
+    <div class="rule-item">
+      <div class="rule-points">⚠️</div>
+      <div>El admin tiene acceso directo a la base de datos en Render (es necesario para mantenimiento y para hacer correcciones puntuales, como cuando arreglamos los partidos repetidos en los grupos E, K y L). Eso significa que técnicamente podría modificar datos por fuera del sistema. Por eso esta sección existe: si ves algo que no cierra, levantá la mano. Este prode es entre nosotros y para divertirse.</div>
     </div>
   </div>`;
 }
