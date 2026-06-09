@@ -139,6 +139,13 @@ class AvatarConfigOut(BaseModel):
     avatar_config: Optional[str] = None
 
 
+class UserUpdateAdminIn(BaseModel):
+    """Campos que un admin puede modificar de un usuario existente. Por ahora
+    solo display_name (para corregir nombres incompletos cargados al registrarse)."""
+
+    display_name: str = Field(min_length=3, max_length=100)
+
+
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=500)
 
