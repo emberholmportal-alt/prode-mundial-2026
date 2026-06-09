@@ -20,6 +20,7 @@ from .limiter import limiter
 from .models import User
 from .routes import (
     admin,
+    audit_routes,
     auth_routes,
     comments_routes,
     final_pick,
@@ -107,6 +108,7 @@ app.include_router(results_routes.router, prefix="/api")
 app.include_router(comments_routes.router, prefix="/api")
 app.include_router(live_routes.router, prefix="/api")
 app.include_router(me_routes.router, prefix="/api")
+app.include_router(audit_routes.router, prefix="/api")
 
 
 @app.get("/health")
