@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..fixtures import FIXTURE_BY_ID
 from ..limiter import limiter
 from ..models import Prediction, User
 
@@ -24,33 +25,71 @@ _cache_lock = threading.Lock()
 
 
 def _compute_audit(db: Session) -> list[dict]:
+    # Por usuario: cantidad total de predicciones, última modificación global,
+    # y última modificación por fase (grupos / dieciseisavos / octavos / cuartos
+    # / semis / tercerpuesto / final). Se agrega en Python porque la "fase" de
+    # cada match no está en la DB (vive en el FIXTURE local).
     stmt = (
         select(
+            User.id,
             User.username,
             User.display_name,
-            func.count(Prediction.id).label("predictions_count"),
-            func.max(Prediction.updated_at).label("last_modified_at"),
+            Prediction.match_id,
+            Prediction.updated_at,
         )
         .outerjoin(Prediction, Prediction.user_id == User.id)
-        .group_by(User.id, User.username, User.display_name)
     )
-    rows = []
+
+    per_user: dict[int, dict] = {}
     for r in db.execute(stmt).all():
-        rows.append({
+        u = per_user.setdefault(r.id, {
             "username": r.username,
             "display_name": r.display_name,
-            "predictions_count": int(r.predictions_count or 0),
-            "last_modified_at": r.last_modified_at.isoformat() + "Z"
-                if r.last_modified_at else None,
+            "predictions_count": 0,
+            "last_modified_at": None,
+            "by_phase": {},  # phase -> datetime
         })
+        if r.match_id is None or r.updated_at is None:
+            continue
+        u["predictions_count"] += 1
+        ts = r.updated_at
+        if u["last_modified_at"] is None or ts > u["last_modified_at"]:
+            u["last_modified_at"] = ts
+        m = FIXTURE_BY_ID.get(r.match_id)
+        if m is None:
+            continue
+        phase = m["phase"]
+        cur = u["by_phase"].get(phase)
+        if cur is None or ts > cur:
+            u["by_phase"][phase] = ts
+
+    def _iso(ts):
+        return ts.isoformat() + "Z" if ts else None
+
+    rows = []
+    for u in per_user.values():
+        rows.append({
+            "username": u["username"],
+            "display_name": u["display_name"],
+            "predictions_count": u["predictions_count"],
+            "last_modified_at": _iso(u["last_modified_at"]),
+            "by_phase": {phase: _iso(ts) for phase, ts in u["by_phase"].items()},
+        })
+
     # Ordenar: con actividad más reciente primero; sin actividad al final por username
-    rows.sort(key=lambda r: (
-        r["last_modified_at"] is None,
-        -(0 if r["last_modified_at"] is None
-          else int(r["last_modified_at"].replace("-", "").replace(":", "").replace("T", "").replace("Z", "")[:14])),
-        r["username"],
-    ))
-    return rows
+    def _sort_key(r):
+        lm = r["last_modified_at"]
+        if lm is None:
+            return (1, "", r["username"])
+        return (0, lm, r["username"])  # mayor ISO string = más reciente
+    rows.sort(key=_sort_key, reverse=False)
+    # Como queremos más reciente arriba pero sin actividad al final, invertimos
+    # los activos y dejamos los inactivos abajo
+    actives = [r for r in rows if r["last_modified_at"] is not None]
+    inactives = [r for r in rows if r["last_modified_at"] is None]
+    actives.sort(key=lambda r: r["last_modified_at"], reverse=True)
+    inactives.sort(key=lambda r: r["username"])
+    return actives + inactives
 
 
 @router.get("/users")
