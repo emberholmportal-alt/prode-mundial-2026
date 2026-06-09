@@ -870,10 +870,31 @@
   .audit-users-username { font-size: 10px; color: rgba(255,255,255,0.4); font-weight: 400; }
   .audit-users-count { text-align: right; color: #ffd0a8; font-weight: 800; }
   .audit-users-when { text-align: right; color: rgba(255,255,255,0.7); white-space: nowrap; font-size: 11.5px; }
+  .audit-phase-chips {
+    grid-column: 1 / -1;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 4px; padding-top: 6px;
+    border-top: 1px dashed rgba(255,255,255,0.08);
+  }
+  .audit-phase-chip {
+    display: inline-flex; align-items: baseline; gap: 6px;
+    background: rgba(255,138,76,0.10);
+    border: 1px solid rgba(255,138,76,0.22);
+    border-radius: 6px;
+    padding: 3px 8px;
+    font-size: 10.5px;
+  }
+  .audit-phase-label {
+    font-weight: 800; letter-spacing: 0.3px; color: #ffd0a8;
+    text-transform: uppercase; font-size: 9.5px;
+  }
+  .audit-phase-when { color: rgba(255,255,255,0.85); white-space: nowrap; }
   @media (max-width: 600px) {
     .audit-users-row { grid-template-columns: 1fr auto; row-gap: 4px; }
     .audit-users-head { display: none; }
     .audit-users-when { grid-column: 1 / -1; text-align: left; font-size: 10.5px; }
+    .audit-phase-chip { font-size: 10px; padding: 2px 6px; }
+    .audit-phase-label { font-size: 9px; }
   }
   .empty-state .icon {
     font-size: 56px; display: block; margin-bottom: 12px; opacity: 0.5;
@@ -2946,98 +2967,7 @@ const _PHASE_LABELS = {
   grupos: 'Grupos', dieciseisavos: '16vos', octavos: 'Octavos',
   cuartos: 'Cuartos', semis: 'Semis', tercerpuesto: '3er Puesto', final: 'Final'
 };
-
-function _fmtMatchDateART(m) {
-  if (!m) return '';
-  const d = new Date(`${m.date}T${m.time || '00:00'}:00-03:00`);
-  const dt = d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'America/Argentina/Buenos_Aires' });
-  const tm = d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'America/Argentina/Buenos_Aires' });
-  return `${dt} · ${tm} hs`;
-}
-
-function _csvEscape(s) {
-  s = String(s == null ? '' : s);
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
-  return s;
-}
-
-async function downloadMyPredictions() {
-  const u = state.currentUser;
-  if (!u) return;
-  const btn = document.getElementById('btnDownloadPredictions');
-  if (btn) { btn.disabled = true; btn.textContent = 'Generando...'; }
-  let preds;
-  try {
-    preds = await apiFetch('/api/predictions/me');
-  } catch (e) {
-    showToast('No se pudo obtener tus predicciones', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = '📥 Descargar mis predicciones (CSV)'; }
-    return;
-  }
-  if (!Array.isArray(preds) || preds.length === 0) {
-    showToast('Todavía no cargaste ninguna predicción', 'error');
-    if (btn) { btn.disabled = false; btn.textContent = '📥 Descargar mis predicciones (CSV)'; }
-    return;
-  }
-
-  const matchMap = {};
-  for (const m of FIXTURE) matchMap[m.id] = m;
-
-  // Ordenar por kickoff del partido
-  const sorted = preds.slice().sort((a, b) => {
-    const ma = matchMap[a.match_id], mb = matchMap[b.match_id];
-    const ka = ma ? `${ma.date}T${ma.time || '00:00'}` : '';
-    const kb = mb ? `${mb.date}T${mb.time || '00:00'}` : '';
-    return ka.localeCompare(kb);
-  });
-
-  const generatedAt = _fmtAuditTs(new Date().toISOString());
-  const lines = [];
-  lines.push(`Usuario,${_csvEscape((u.display_name || '') + ' (' + u.username + ')')}`);
-  lines.push(`Generado,${_csvEscape(generatedAt)}`);
-  lines.push('');
-  lines.push([
-    'Partido ID', 'Equipos', 'Fase', 'Fecha partido (ART)',
-    'Mi prediccion (local-visitante)', 'Cargado/modificado el (ART)'
-  ].join(','));
-
-  for (const p of sorted) {
-    const m = matchMap[p.match_id];
-    const homeName = m && TEAMS[m.home] ? TEAMS[m.home].name : (m ? m.home : '');
-    const awayName = m && TEAMS[m.away] ? TEAMS[m.away].name : (m ? m.away : '');
-    const teams = (homeName && awayName) ? `${homeName} vs ${awayName}` : p.match_id;
-    const phase = m ? (_PHASE_LABELS[m.phase] || m.phase) : '';
-    const kickoff = m ? _fmtMatchDateART(m) : '';
-    const score = `${p.home_score}-${p.away_score}`;
-    const updated = _fmtAuditTs(p.updated_at);
-    lines.push([
-      _csvEscape(p.match_id),
-      _csvEscape(teams),
-      _csvEscape(phase),
-      _csvEscape(kickoff),
-      _csvEscape(score),
-      _csvEscape(updated)
-    ].join(','));
-  }
-
-  const csv = lines.join('\n');
-  // BOM UTF-8 para que Excel respete tildes y eñes al abrir
-  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  a.download = `prode-predicciones-${u.username}-${today}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-
-  if (btn) { btn.disabled = false; btn.textContent = '📥 Descargar mis predicciones (CSV)'; }
-  showToast(`📥 Descargadas ${sorted.length} predicciones`);
-}
+const _PHASES_ORDER = ['grupos', 'dieciseisavos', 'octavos', 'cuartos', 'semis', 'tercerpuesto', 'final'];
 
 async function refreshResults() {
   if (_resultsCache.payload && (Date.now() - _resultsCache.at) < 30_000) return _resultsCache.payload;
@@ -3115,15 +3045,6 @@ function renderTransparencia() {
       <div class="rule-points">✓</div>
       <div><strong>Los puntos se calculan automáticamente en la base de datos.</strong> No hay forma de ajustar puntos manualmente desde la app. Es matemática pura (SQL) comparando tu predicción con el resultado oficial.</div>
     </div>
-    <div class="rule-item">
-      <div class="rule-points">📥</div>
-      <div>
-        <strong>Cada usuario puede descargar su propio registro de predicciones</strong> en un archivo CSV (lo abrís con Excel o cualquier editor de texto). Incluye, para cada partido, el pronóstico cargado y la <strong>fecha y hora exacta</strong> en que lo cargaste o modificaste. Eso te da tu copia personal para revisar y verificar que nada haya cambiado por fuera del sistema.
-        <div style="margin-top:10px;">
-          <button class="btn-save" id="btnDownloadPredictions" type="button">📥 Descargar mis predicciones (CSV)</button>
-        </div>
-      </div>
-    </div>
   </div>
 
   <div class="rules-card">
@@ -3165,13 +3086,20 @@ function _renderAuditUsersHTML() {
         <span style="text-align:right;">Predicciones</span>
         <span style="text-align:right;">Última carga / modificación</span>
       </div>
-      ${rows.map(r => `
+      ${rows.map(r => {
+        const phases = r.by_phase || {};
+        const chips = _PHASES_ORDER
+          .filter(p => phases[p])
+          .map(p => `<span class="audit-phase-chip"><span class="audit-phase-label">${_PHASE_LABELS[p]}</span><span class="audit-phase-when">${_fmtAuditTs(phases[p])}</span></span>`)
+          .join('');
+        return `
         <div class="audit-users-row">
           <span class="audit-users-name">${(r.display_name || r.username)}<span class="audit-users-username">@${r.username}</span></span>
           <span class="audit-users-count">${r.predictions_count}</span>
           <span class="audit-users-when">${r.last_modified_at ? _fmtAuditTs(r.last_modified_at) : '—'}</span>
-        </div>
-      `).join('')}
+          ${chips ? `<div class="audit-phase-chips">${chips}</div>` : ''}
+        </div>`;
+      }).join('')}
     </div>`;
   }
   return `
@@ -3482,8 +3410,6 @@ function bindContent() {
   if (btnSaveFinalOfficial) btnSaveFinalOfficial.onclick = saveOfficialFinal;
   const goToCampeon = document.getElementById('goToCampeon');
   if (goToCampeon) goToCampeon.onclick = () => { state.view = 'campeon'; renderContent(); };
-  const btnDownloadPredictions = document.getElementById('btnDownloadPredictions');
-  if (btnDownloadPredictions) btnDownloadPredictions.onclick = downloadMyPredictions;
 }
 
 // =================================================================
