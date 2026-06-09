@@ -123,12 +123,45 @@
   .user-info {
     display: flex; align-items: center; gap: 10px; font-size: 14px;
   }
+  /* Apila el row clásico (nombre+badges+Salir) y la mini-card de stats debajo */
+  .user-info-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
   .user-badge {
     background: rgba(0,0,0,0.3);
     padding: 6px 12px; border-radius: 20px;
     font-weight: 600;
     border: 1px solid rgba(255,255,255,0.2);
     display: inline-flex; align-items: center; gap: 6px;
+  }
+  /* Mini-card con: pts · General · Empresa · Sede */
+  .user-stats {
+    display: flex; align-items: stretch; gap: 0;
+    background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 12px; padding: 4px 2px; overflow: hidden;
+  }
+  .user-stat {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-width: 56px; padding: 3px 10px;
+    border-left: 1px solid rgba(255,255,255,0.08);
+  }
+  .user-stat:first-child { border-left: none; }
+  .user-stat-value { font-weight: 900; font-size: 15px; color: #fff; line-height: 1; }
+  .user-stat-label { font-size: 9px; letter-spacing: 0.5px; text-transform: uppercase; color: rgba(255,255,255,0.7); margin-top: 2px; }
+  .user-stat.points .user-stat-value { color: #ffd0a8; }
+  .user-stat.pos-general .user-stat-value { color: #ffffff; }
+  .user-stat.pos-company .user-stat-value { color: #d6e394; }
+  .user-stat.pos-city .user-stat-value { color: #74acdf; }
+  .user-stat .user-stat-value.dash { color: rgba(255,255,255,0.35); }
+
+  @media (max-width: 900px) {
+    .user-stat { min-width: 44px; padding: 2px 6px; }
+    .user-stat-value { font-size: 13px; }
+    .user-stat-label { font-size: 8px; }
+  }
+  @media (max-width: 600px) {
+    .user-info-stack { gap: 5px; }
+    .user-stat { min-width: 38px; padding: 2px 5px; }
+    .user-stat-value { font-size: 12px; }
+    .user-stat-label { font-size: 8px; letter-spacing: 0.3px; }
   }
   .btn-logout {
     background: var(--negro); color: var(--blanco);
@@ -1615,6 +1648,8 @@ let state = {
     finalPick: {},       // { champion, runnerUp }
     leaderboard: [],     // [{ username, display_name, points, predicted_count, correct_exact, correct_result }]
     deadlinesUtc: {},    // { phase: ISO UTC }
+    myStats: null,       // fila propia del leaderboard general (puntos)
+    myStandings: null,   // { points, posGeneral, totalGeneral, posCompany, totalCompany, posCity, totalCity }
     loaded: false
   },
   pendingTimers: {} // { key: timeoutId } para debounce
@@ -1951,6 +1986,7 @@ async function handleLogin() {
     await loadAppData();
     _routeAfterLoad();
     startBackgroundPolling();
+    refreshMyStandings();
     showToast('¡Bienvenido, ' + (res.user.display_name || res.user.username) + '!');
     confetti({ intensity: 'big', palette: 'prode' });
     render();
@@ -2031,6 +2067,7 @@ async function handleRegister() {
     await loadAppData();
     _routeAfterLoad();
     startBackgroundPolling();
+    refreshMyStandings();
     showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
     confetti({ intensity: 'big', palette: 'prode' });
     render();
@@ -2091,6 +2128,64 @@ async function refreshLeaderboard() {
   } catch (e) { /* no romper UI */ }
 }
 
+// =================================================================
+// HEADER STATS — mis puntos + posición general / empresa / sede
+// =================================================================
+const _COMPANY_SHORT = { grupo_gestion: 'GG', carrefour: 'Carr' };
+const _CITY_SHORT = { isidro_casanova: 'Casa', esteban_echeverria: 'Eche' };
+
+function _findMyRow(rows, username) {
+  if (!Array.isArray(rows)) return { pos: null, total: 0, row: null };
+  const idx = rows.findIndex(r => r.username === username);
+  return { pos: idx >= 0 ? idx + 1 : null, total: rows.length, row: idx >= 0 ? rows[idx] : null };
+}
+
+async function refreshMyStandings() {
+  const u = state.currentUser;
+  if (!u) return;
+  try {
+    const [general, company, city] = await Promise.all([
+      apiFetch('/api/leaderboard'),
+      apiFetch('/api/leaderboard?company=' + encodeURIComponent(u.company)),
+      apiFetch('/api/leaderboard?city=' + encodeURIComponent(u.city)),
+    ]);
+    const gen = _findMyRow(general, u.username);
+    const com = _findMyRow(company, u.username);
+    const cit = _findMyRow(city, u.username);
+    state.cache.myStandings = {
+      points: (gen.row && gen.row.points) || 0,
+      posGeneral: gen.pos, totalGeneral: gen.total,
+      posCompany: com.pos, totalCompany: com.total,
+      posCity: cit.pos, totalCity: cit.total,
+    };
+    // Sincronizar myStats (fixture lo lee para "Mis Puntos")
+    if (gen.row) state.cache.myStats = gen.row;
+  } catch (e) { /* silent */ }
+  updateHeaderStats();
+}
+
+function updateHeaderStats() {
+  const el = document.getElementById('userStats');
+  if (!el) return;
+  const u = state.currentUser;
+  if (!u) { el.innerHTML = ''; return; }
+  const s = state.cache.myStandings;
+  const pos = (n) => n != null ? `#${n}` : '—';
+  const valClass = (n) => n != null ? 'user-stat-value' : 'user-stat-value dash';
+  const coLabel = _COMPANY_SHORT[u.company] || 'Empresa';
+  const ciLabel = _CITY_SHORT[u.city] || 'Sede';
+  const points = s ? s.points : null;
+  const posG = s ? s.posGeneral : null;
+  const posCo = s ? s.posCompany : null;
+  const posCi = s ? s.posCity : null;
+  el.innerHTML = `
+    <div class="user-stat points"><span class="${valClass(points)}">${points != null ? points : '—'}</span><span class="user-stat-label">pts</span></div>
+    <div class="user-stat pos-general"><span class="${valClass(posG)}">${pos(posG)}</span><span class="user-stat-label">General</span></div>
+    <div class="user-stat pos-company"><span class="${valClass(posCo)}">${pos(posCo)}</span><span class="user-stat-label">${coLabel}</span></div>
+    <div class="user-stat pos-city"><span class="${valClass(posCi)}">${pos(posCi)}</span><span class="user-stat-label">${ciLabel}</span></div>
+  `;
+}
+
 function renderApp() {
   const u = state.currentUser;
   const isAdmin = !!u.is_admin;
@@ -2110,10 +2205,13 @@ function renderApp() {
         <div class="logo-divider"></div>
         <img src="/assets/logo-carrefour.png" class="logo-carrefour" alt="Carrefour">
       </div>
-      <div class="user-info">
-        <span class="user-badge">👤 ${u.display_name || u.username}</span>
-        ${isAdmin ? '<span class="workplace-badge">⚙️ Admin</span>' : ''}
-        <button class="btn-logout" id="btnLogout">Salir</button>
+      <div class="user-info-stack">
+        <div class="user-info">
+          <span class="user-badge">👤 ${u.display_name || u.username}</span>
+          ${isAdmin ? '<span class="workplace-badge">⚙️ Admin</span>' : ''}
+          <button class="btn-logout" id="btnLogout">Salir</button>
+        </div>
+        <div class="user-stats" id="userStats" aria-label="Mis puntos y posiciones"></div>
       </div>
     </div>
   </div>
@@ -2148,7 +2246,7 @@ async function bindApp() {
     state.currentUser = null;
     state.view = 'login';
     state.authMode = 'login';
-    state.cache = { predictions: {}, officialResults: {}, officialFinal: {}, finalPick: {}, leaderboard: [], myStats: null, deadlinesUtc: {}, loaded: false };
+    state.cache = { predictions: {}, officialResults: {}, officialFinal: {}, finalPick: {}, leaderboard: [], myStats: null, myStandings: null, deadlinesUtc: {}, loaded: false };
     state.comments = [];
     state.live = null;
     render();
@@ -2157,6 +2255,7 @@ async function bindApp() {
     t.onclick = () => { state.view = t.dataset.view; renderContent(); };
   });
   try { mountSidebars(); } catch (e) { console.error('mountSidebars failed:', e); }
+  try { updateHeaderStats(); } catch (e) { console.error('updateHeaderStats failed:', e); }
   try { await renderContent(); }
   catch (e) {
     console.error('renderContent failed:', e);
@@ -2596,6 +2695,7 @@ async function saveFinalPick() {
     state.cache.finalPick = { champion: res.champion, runnerUp: res.runner_up };
     state.editingMatches.delete('final');
     await refreshLeaderboard();
+    refreshMyStandings();
     // Confetti con los colores de la bandera del campeón elegido
     confetti({ intensity: 'big', colors: _teamColors(res.champion) });
     // Siempre llevamos al usuario al Fixture después de guardar la elección
@@ -2967,6 +3067,7 @@ async function savePrediction(matchId, opts = {}) {
       body: JSON.stringify({ home_score: homeN, away_score: awayN })
     });
     state.cache.predictions[matchId] = { home: res.home_score, away: res.away_score };
+    refreshMyStandings();
     confetti({ intensity: 'small' });
     if (wasNew) {
       const total = Object.keys(state.cache.predictions).length;
@@ -3611,6 +3712,7 @@ async function appBoot() {
     await loadAppData();
     _routeAfterLoad();
     startBackgroundPolling();
+    refreshMyStandings();
   } catch (e) {
     clearAuth();
     state.currentUser = null;
