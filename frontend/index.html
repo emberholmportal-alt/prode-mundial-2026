@@ -1139,6 +1139,30 @@
   }
   .comment-tag.carrefour { background: rgba(0,113,206,0.16); color: #8ec8ff; border-color: rgba(0,113,206,0.3); }
   .comment-tag.sede { background: rgba(186,202,72,0.14); color: #d6e394; border-color: rgba(186,202,72,0.28); }
+  .comment-edited { font-size: 10px; color: rgba(255,255,255,0.45); font-style: italic; margin-left: 2px; }
+  .comment-actions {
+    display: inline-flex; gap: 4px;
+    margin-left: auto; opacity: 0.55; transition: opacity 0.15s ease;
+  }
+  .comment-card:hover .comment-actions { opacity: 1; }
+  .comment-action-btn {
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    color: #fff; border-radius: 6px; padding: 2px 7px; cursor: pointer;
+    font-size: 12px; line-height: 1.1;
+  }
+  .comment-action-btn:hover { background: rgba(255,138,76,0.15); border-color: rgba(255,138,76,0.4); }
+  .comment-edit-form { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+  .comment-edit-input {
+    width: 100%; resize: vertical; padding: 8px 10px; border-radius: 8px;
+    background: rgba(255,255,255,0.06); color: #fff;
+    border: 1px solid rgba(255,138,76,0.4);
+    font-family: inherit; font-size: 13px; min-height: 50px; max-height: 200px;
+    box-sizing: border-box;
+  }
+  .comment-edit-buttons { display: flex; gap: 6px; justify-content: flex-end; }
+  .comment-edit-save { background: var(--naranja, #ff8a4c); border-color: var(--naranja, #ff8a4c); color: #fff; font-weight: 700; }
+  .comment-edit-cancel { color: rgba(255,255,255,0.7); }
+  .comment-card.editing { border-color: rgba(255,138,76,0.35); background: rgba(255,138,76,0.05); }
   .comments-form { padding: 10px 14px 16px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; }
   .comments-form textarea {
     flex: 1; resize: none; padding: 10px; border-radius: 10px;
@@ -1696,6 +1720,7 @@ let state = {
   comments: [],
   commentsOpen: false,
   commentsLastSeenId: parseInt(localStorage.getItem('prode_comments_last') || '0', 10) || 0,
+  editingCommentId: null, // id del comentario en edición inline (o null)
   live: null,
   phaseFilter: 'all',
   authMode: 'login',
@@ -3788,11 +3813,16 @@ function stopLivePolling() {
 // =================================================================
 let _commentsPollTimer = null;
 
+function _escHtml(s) {
+  return (s || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
+}
+
 function _commentsListHTML() {
   const items = state.comments || [];
   if (items.length === 0) {
     return '<div class="side-empty">No hay comentarios todavía. Sé el primero.</div>';
   }
+  const cu = state.currentUser;
   return items.map(c => {
     const time = new Date(c.created_at + (c.created_at.endsWith('Z') ? '' : 'Z'));
     const when = time.toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
@@ -3801,12 +3831,38 @@ function _commentsListHTML() {
       companyTag(c.company),
       cityTag(c.city)
     ].filter(Boolean).join(' ');
-    const safe = (c.body || '').replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
-    return `<div class="comment-card">
+    const safe = _escHtml(c.body);
+    const isMine = cu && (c.username === cu.username);
+    const canModify = isMine || (cu && cu.is_admin);
+    const editedBadge = c.updated_at ? '<span class="comment-edited" title="Comentario editado">· editado</span>' : '';
+    const actions = canModify ? `
+      <div class="comment-actions">
+        <button class="comment-action-btn" type="button" data-comment-edit="${c.id}" title="Editar">✏️</button>
+        <button class="comment-action-btn" type="button" data-comment-delete="${c.id}" title="Borrar">🗑️</button>
+      </div>` : '';
+    const isEditing = state.editingCommentId === c.id;
+    if (isEditing) {
+      return `<div class="comment-card editing" data-comment-card="${c.id}">
+        <div class="comment-head">
+          <span class="comment-name">${c.display_name || c.username}</span>
+          ${tags}
+          <span class="comment-meta">${when}${editedBadge}</span>
+        </div>
+        <form class="comment-edit-form" data-comment-edit-form="${c.id}">
+          <textarea class="comment-edit-input" data-comment-edit-input maxlength="500" rows="3">${safe}</textarea>
+          <div class="comment-edit-buttons">
+            <button type="button" class="comment-action-btn comment-edit-cancel" data-comment-edit-cancel="${c.id}">Cancelar</button>
+            <button type="submit" class="comment-action-btn comment-edit-save">Guardar</button>
+          </div>
+        </form>
+      </div>`;
+    }
+    return `<div class="comment-card" data-comment-card="${c.id}">
       <div class="comment-head">
         <span class="comment-name">${c.display_name || c.username}</span>
         ${tags}
-        <span class="comment-meta">${when}</span>
+        <span class="comment-meta">${when}${editedBadge}</span>
+        ${actions}
       </div>
       <div class="comment-body">${safe}</div>
     </div>`;
@@ -3851,7 +3907,10 @@ function _trackCommentsSeen() {
 async function loadComments() {
   try {
     state.comments = await apiFetch('/api/comments?limit=100') || [];
-    renderCommentsList();
+    // No re-renderizar la lista si hay un comentario abierto en modo edición
+    // (perdería el texto del textarea). La próxima acción del usuario
+    // (guardar/cancelar) refresca todo.
+    if (state.editingCommentId == null) renderCommentsList();
   } catch (e) { /* silent */ }
 }
 
@@ -3893,6 +3952,76 @@ function bindCommentsForms() {
       });
     }
   });
+  // Edit/Delete buttons + edit form (event delegation a [data-comments-list])
+  document.querySelectorAll('[data-comments-list]').forEach(list => {
+    if (list._modBound) return;
+    list._modBound = true;
+    list.addEventListener('click', (e) => {
+      const ed = e.target.closest('[data-comment-edit]');
+      if (ed) {
+        state.editingCommentId = parseInt(ed.dataset.commentEdit, 10);
+        renderCommentsList();
+        // foco al textarea
+        setTimeout(() => {
+          const inp = document.querySelector('[data-comment-edit-input]');
+          if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
+        }, 30);
+        return;
+      }
+      const ca = e.target.closest('[data-comment-edit-cancel]');
+      if (ca) {
+        state.editingCommentId = null;
+        renderCommentsList();
+        return;
+      }
+      const del = e.target.closest('[data-comment-delete]');
+      if (del) {
+        const id = parseInt(del.dataset.commentDelete, 10);
+        if (confirm('¿Borrar este comentario? No se puede deshacer.')) deleteComment(id);
+        return;
+      }
+    });
+    list.addEventListener('submit', (e) => {
+      const form = e.target.closest('[data-comment-edit-form]');
+      if (!form) return;
+      e.preventDefault();
+      const id = parseInt(form.dataset.commentEditForm, 10);
+      const inp = form.querySelector('[data-comment-edit-input]');
+      const body = inp ? inp.value : '';
+      updateComment(id, body);
+    });
+  });
+}
+
+async function updateComment(id, body) {
+  const trimmed = (body || '').trim();
+  if (!trimmed) { showToast('No puede estar vacío', 'error'); return; }
+  try {
+    const updated = await apiFetch(`/api/comments/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ body: trimmed })
+    });
+    // Reemplazar en el cache local
+    const idx = state.comments.findIndex(c => c.id === id);
+    if (idx >= 0) state.comments[idx] = updated;
+    state.editingCommentId = null;
+    renderCommentsList();
+    showToast('Comentario editado ✓');
+  } catch (e) {
+    showToast(e.message || 'Error al editar', 'error');
+  }
+}
+
+async function deleteComment(id) {
+  try {
+    await apiFetch(`/api/comments/${id}`, { method: 'DELETE' });
+    state.comments = state.comments.filter(c => c.id !== id);
+    if (state.editingCommentId === id) state.editingCommentId = null;
+    renderCommentsList();
+    showToast('Comentario borrado');
+  } catch (e) {
+    showToast(e.message || 'Error al borrar', 'error');
+  }
 }
 
 function startCommentsPolling() {

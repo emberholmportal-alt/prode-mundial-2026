@@ -152,6 +152,7 @@ class CommentIn(BaseModel):
 
 class CommentOut(BaseModel):
     id: int
+    user_id: int
     username: str
     display_name: str
     sector: str
@@ -159,6 +160,7 @@ class CommentOut(BaseModel):
     city: str
     body: str
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
 
 class AdminStats(BaseModel):

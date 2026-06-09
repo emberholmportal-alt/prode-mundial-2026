@@ -154,5 +154,9 @@ class Comment(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), nullable=False, server_default=func.now()
     )
+    # NULL = nunca editado. Cualquier PATCH lo setea con datetime.utcnow().
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True, default=None
+    )
 
     user: Mapped[User] = relationship(back_populates="comments")
