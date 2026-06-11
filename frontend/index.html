@@ -1771,6 +1771,25 @@ function isPhaseLocked(phase) {
   return Date.now() >= dl.getTime();
 }
 
+// Deadline INDIVIDUAL de cada partido = kickoff − 1h. Es la fuente de verdad
+// para decidir si una card está editable. El backend hace el mismo cálculo
+// en /api/fixtures.match_deadlines_utc y nos lo cachea.
+function matchDeadline(matchId) {
+  const iso = state.cache && state.cache.matchDeadlinesUtc && state.cache.matchDeadlinesUtc[matchId];
+  if (iso) return new Date(iso);
+  // Fallback local (antes de que la API responda): calculamos desde el FIXTURE
+  const m = FIXTURE.find(x => x.id === matchId);
+  if (!m) return null;
+  const ko = new Date(`${m.date}T${m.time || '00:00'}:00-03:00`);
+  return new Date(ko.getTime() - 60 * 60 * 1000);
+}
+
+function isMatchLocked(matchId) {
+  const dl = matchDeadline(matchId);
+  if (!dl) return false;
+  return Date.now() >= dl.getTime();
+}
+
 // Deadline del campeón/subcampeón = 1h antes del primer partido del Mundial.
 // Usa la respuesta del backend; si aún no está, calcula local.
 function finalPickDeadline() {
@@ -2428,18 +2447,14 @@ function renderFixture() {
 
   let filtered = state.phaseFilter === 'all' ? FIXTURE : FIXTURE.filter(m => m.phase === state.phaseFilter);
 
-  // Helper: banner de estado por fase (cerrada / deadline)
+  // Banner informativo de la fase. El cierre real ahora es por PARTIDO
+  // individual (kickoff − 1h), no por fase, así que el banner solo recuerda
+  // la regla. Cada card del partido muestra su propio estado de lock.
   function phaseBanner(phaseKey, phaseLabel) {
     const dl = phaseDeadline(phaseKey);
     if (!dl) return '';
-    const locked = Date.now() >= dl.getTime();
-    if (locked) {
-      return `<div class="phase-locked-banner">
-        🔒 <span><strong>${phaseLabel}:</strong> Pronósticos cerrados (la fase ya comenzó)</span>
-      </div>`;
-    }
     return `<div class="phase-locked-banner" style="border-color:rgba(0,200,83,0.4);color:#B3F5C9;background:rgba(0,200,83,0.06);">
-      ⏳ <span><strong>${phaseLabel}:</strong> Podés cargar y modificar hasta <strong>${fmtDeadline(dl)}</strong></span>
+      ⏳ <span><strong>${phaseLabel}:</strong> cada partido se puede cargar o modificar hasta <strong>1 hora antes de su kickoff</strong>.</span>
     </div>`;
   }
 
@@ -2506,7 +2521,7 @@ function renderMatch(m, predictions, officialResults) {
   const off = officialResults[m.id];
   const hasOfficial = off && off.home != null && off.away != null;
   const hasPrediction = pred.home != null && pred.away != null;
-  const phaseLocked = isPhaseLocked(m.phase);
+  const phaseLocked = isMatchLocked(m.id);
   const isEditing = state.editingMatches.has(m.id);
 
   // Decisión de modo:
@@ -3297,8 +3312,8 @@ async function deleteOfficialResult(matchId) {
 
 async function savePrediction(matchId, opts = {}) {
   const match = FIXTURE.find(m => m.id === matchId);
-  if (match && isPhaseLocked(match.phase)) {
-    showToast('La fase ya está cerrada, no podés modificar', 'error');
+  if (match && isMatchLocked(matchId)) {
+    showToast('La predicción ya cerró (faltaba 1h para el partido)', 'error');
     state.editingMatches.delete(matchId);
     renderContent();
     return;
@@ -3370,8 +3385,8 @@ function bindContent() {
     btn.onclick = () => {
       const id = btn.dataset.modify;
       const match = FIXTURE.find(m => m.id === id);
-      if (match && isPhaseLocked(match.phase)) {
-        showToast('La fase ya está cerrada', 'error');
+      if (match && isMatchLocked(id)) {
+        showToast('La predicción ya cerró (faltaba 1h para el partido)', 'error');
         return;
       }
       state.editingMatches.add(id);
