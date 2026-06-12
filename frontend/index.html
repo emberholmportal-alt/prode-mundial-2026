@@ -1290,7 +1290,7 @@
     max-height: calc(100vh - 24px);
     display: flex; flex-direction: column; gap: 12px;
   }
-  .sidebar-right { width: 340px; }
+  .sidebar-right { width: 340px; height: calc(100vh - 24px); max-height: calc(100vh - 24px); }
   .side-block {
     background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%);
     border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
@@ -1374,7 +1374,7 @@
   .comments-side { display: flex; flex-direction: column; min-height: 0; height: 100%; }
   .comments-side .comments-header { padding: 4px 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; }
   .comments-side .comments-header h3 { margin: 0; font-size: 13px; letter-spacing: 2px; color: #ffd0a8; }
-  .comments-side .comments-list { flex: 1; overflow-y: auto; padding: 0 2px; display: flex; flex-direction: column; gap: 10px; min-height: 100px; max-height: calc(100vh - 120px); }
+  .comments-side .comments-list { flex: 1 1 auto; overflow-y: auto; padding: 0 2px; display: flex; flex-direction: column; gap: 10px; min-height: 240px; }
   .comments-side .comments-form { padding: 0 0 10px; border-top: 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-top: 0; margin-bottom: 10px; }
 
   /* Tabs visibles solo en mobile */
