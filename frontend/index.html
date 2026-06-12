@@ -1570,6 +1570,47 @@
   }
   .likers-modal-heart { font-size: 14px; line-height: 1; }
   .likers-modal-name { font-weight: 700; font-size: 13px; color: #fff; }
+  /* Modal de cambio de contraseña forzado */
+  .pwd-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.78);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10000; padding: 20px; box-sizing: border-box;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+    backdrop-filter: blur(4px);
+  }
+  .pwd-modal-overlay.visible { opacity: 1; pointer-events: auto; }
+  .pwd-modal-card {
+    position: relative; width: 380px; max-width: 92vw;
+    background: linear-gradient(180deg, #2a2118 0%, #1a130d 100%);
+    color: #fff; border-radius: 14px;
+    border: 1px solid rgba(255,138,76,0.45);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.7);
+    padding: 24px 22px;
+    transform: scale(0.94); opacity: 0;
+    transition: transform 0.28s cubic-bezier(0.2,0.8,0.2,1), opacity 0.24s ease;
+  }
+  .pwd-modal-overlay.visible .pwd-modal-card { transform: scale(1); opacity: 1; }
+  .pwd-modal-title { margin: 0 0 6px; font-size: 18px; letter-spacing: 1px; color: #ffd0a8; font-weight: 800; }
+  .pwd-modal-sub { margin: 0 0 18px; font-size: 12.5px; color: rgba(255,255,255,0.65); line-height: 1.45; }
+  .pwd-modal-form { display: flex; flex-direction: column; gap: 10px; }
+  .pwd-modal-form input {
+    width: 100%; box-sizing: border-box;
+    padding: 11px 12px; border-radius: 9px;
+    background: rgba(255,255,255,0.05); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12);
+    font-family: inherit; font-size: 13px;
+  }
+  .pwd-modal-form input:focus { outline: none; border-color: rgba(255,138,76,0.6); }
+  .pwd-modal-error { color: #ff8a8a; font-size: 12px; min-height: 16px; }
+  .pwd-modal-submit {
+    margin-top: 6px; padding: 12px; border-radius: 9px;
+    background: var(--naranja, #ff8a4c); color: #fff;
+    border: none; font-weight: 800; font-size: 14px; letter-spacing: 0.5px;
+    cursor: pointer; transition: background 0.15s ease;
+  }
+  .pwd-modal-submit:hover { background: #ff9a5e; }
+  .pwd-modal-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -1607,6 +1648,20 @@
   <div class="likers-modal-card">
     <button id="likersModalClose" class="likers-modal-close" type="button" aria-label="Cerrar">✕</button>
     <ul class="likers-modal-list" id="likersModalList"></ul>
+  </div>
+</div>
+
+<div id="pwdChangeModal" class="pwd-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="pwdChangeTitle" hidden>
+  <div class="pwd-modal-card">
+    <h3 id="pwdChangeTitle" class="pwd-modal-title">🔒 Cambiar contraseña</h3>
+    <p class="pwd-modal-sub">Tu contraseña fue reseteada. Para continuar, elegí una contraseña nueva (mínimo 8 caracteres).</p>
+    <form class="pwd-modal-form" id="pwdChangeForm" autocomplete="off">
+      <input type="password" id="pwdCurrent" placeholder="Contraseña actual" autocomplete="current-password" required>
+      <input type="password" id="pwdNew" placeholder="Nueva contraseña (mín. 8)" autocomplete="new-password" minlength="8" required>
+      <input type="password" id="pwdConfirm" placeholder="Repetir nueva contraseña" autocomplete="new-password" minlength="8" required>
+      <div class="pwd-modal-error" id="pwdChangeError"></div>
+      <button type="submit" class="pwd-modal-submit" id="pwdChangeSubmit">Cambiar contraseña</button>
+    </form>
   </div>
 </div>
 
@@ -2310,7 +2365,7 @@ async function handleLogin() {
     showToast('¡Bienvenido, ' + (res.user.display_name || res.user.username) + '!');
     confetti({ intensity: 'big', palette: 'prode' });
     render();
-    setTimeout(showPromoModal, 2500);
+    _handlePostLoginEffects();
   } catch (e) {
     showAlert(e.message || 'Error al ingresar');
   } finally {
@@ -2392,7 +2447,7 @@ async function handleRegister() {
     showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
     confetti({ intensity: 'big', palette: 'prode' });
     render();
-    setTimeout(showPromoModal, 2500);
+    _handlePostLoginEffects();
   } catch (e) {
     const mapped = mapRegisterError(e);
     showAlert(mapped.msg);
@@ -4523,7 +4578,7 @@ async function appBoot() {
     _routeAfterLoad();
     startBackgroundPolling();
     refreshMyStandings();
-    setTimeout(showPromoModal, 2500);
+    _handlePostLoginEffects();
   } catch (e) {
     clearAuth();
     state.currentUser = null;
@@ -4635,6 +4690,66 @@ function showPromoModal() {
   // Fallback si la imagen no carga
   const img = overlay.querySelector('.promo-modal-img');
   if (img) img.addEventListener('error', () => img.classList.add('errored'), { once: true });
+}
+
+// =================================================================
+// CAMBIO FORZADO DE CONTRASEÑA — si el admin reseteó la pwd del usuario
+// =================================================================
+function _handlePostLoginEffects() {
+  if (state.currentUser && state.currentUser.must_change_password) {
+    showForceChangePasswordModal();
+  } else {
+    setTimeout(showPromoModal, 2500);
+  }
+}
+
+function showForceChangePasswordModal() {
+  const overlay = document.getElementById('pwdChangeModal');
+  if (!overlay) return;
+  overlay.hidden = false;
+  void overlay.offsetWidth;
+  overlay.classList.add('visible');
+  setTimeout(() => { document.getElementById('pwdCurrent')?.focus(); }, 100);
+
+  const form = document.getElementById('pwdChangeForm');
+  const errBox = document.getElementById('pwdChangeError');
+  const submit = document.getElementById('pwdChangeSubmit');
+  if (!form || form._bound) return;
+  form._bound = true;
+
+  // Bloquear cierre por Esc — es obligatorio
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !overlay.hidden) e.preventDefault();
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errBox.textContent = '';
+    const cur = document.getElementById('pwdCurrent').value;
+    const nw = document.getElementById('pwdNew').value;
+    const cf = document.getElementById('pwdConfirm').value;
+    if (nw.length < 8) { errBox.textContent = 'La nueva debe tener al menos 8 caracteres.'; return; }
+    if (nw !== cf) { errBox.textContent = 'Las contraseñas nuevas no coinciden.'; return; }
+    if (nw === cur) { errBox.textContent = 'La nueva no puede ser igual a la actual.'; return; }
+    submit.disabled = true; submit.textContent = 'Guardando…';
+    try {
+      const updated = await apiFetch('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ current_password: cur, new_password: nw }),
+      });
+      state.currentUser = updated;
+      try { localStorage.setItem('prode_user', JSON.stringify(updated)); } catch (e2) {}
+      overlay.classList.remove('visible');
+      setTimeout(() => { overlay.hidden = true; }, 280);
+      showToast('Contraseña actualizada ✓');
+      form.reset();
+      setTimeout(showPromoModal, 1500);
+    } catch (err) {
+      errBox.textContent = err.message || 'No se pudo cambiar la contraseña';
+    } finally {
+      submit.disabled = false; submit.textContent = 'Cambiar contraseña';
+    }
+  });
 }
 </script>
 
