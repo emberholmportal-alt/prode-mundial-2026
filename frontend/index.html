@@ -1463,7 +1463,19 @@
     .promo-modal-overlay, .promo-modal-card { transition: opacity 0.2s ease; }
     .promo-modal-card { transform: none; }
   }
-  /* Botón flotante para cortar la música del intro */
+  /* Botón inline para cortar la música — al lado del nombre de usuario */
+  .audio-stop-inline {
+    display: none; align-items: center; justify-content: center;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(255,138,76,0.15); color: #ffd0a8;
+    border: 1px solid rgba(255,138,76,0.35);
+    font-size: 14px; cursor: pointer; padding: 0;
+    transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+  }
+  .audio-stop-inline.visible { display: inline-flex; }
+  .audio-stop-inline:hover { background: rgba(255,138,76,0.28); border-color: rgba(255,138,76,0.6); transform: scale(1.06); }
+  .audio-stop-inline:active { transform: scale(0.95); }
+  /* Botón flotante para cortar la música del intro (fallback antes del login) */
   .audio-stop-btn {
     position: fixed; bottom: 16px; left: 16px;
     z-index: 9997;
@@ -2450,6 +2462,7 @@ function renderApp() {
       <div class="user-info-stack">
         <div class="user-info">
           <span class="user-badge">👤 ${u.display_name || u.username}</span>
+          <button id="audioStopBtnInline" class="audio-stop-inline" type="button" aria-label="Cortar música del intro" title="Cortar música">🔇</button>
           ${isAdmin ? '<span class="workplace-badge">⚙️ Admin</span>' : ''}
           <button class="btn-logout" id="btnLogout">Salir</button>
         </div>
@@ -2483,6 +2496,7 @@ function renderApp() {
 }
 
 async function bindApp() {
+  if (typeof _syncAudioStopButtons === 'function') _syncAudioStopButtons();
   document.getElementById('btnLogout').onclick = () => {
     stopBackgroundPolling();
     clearAuth();
@@ -2492,6 +2506,7 @@ async function bindApp() {
     state.cache = { predictions: {}, officialResults: {}, officialFinal: {}, finalPick: {}, leaderboard: [], myStats: null, myStandings: null, deadlinesUtc: {}, loaded: false };
     state.comments = [];
     state.live = null;
+    _promoShown = false; // permite que la publicidad reaparezca tras un nuevo login en la misma pestaña
     render();
   };
   document.querySelectorAll('.tab').forEach(t => {
@@ -4374,32 +4389,37 @@ appBoot();
 // =================================================================
 // SPLASH / INTRO — botón Entrar + música + animación
 // =================================================================
+// Estado y helpers de audio del intro — accesibles desde cualquier parte
+let _audioPlaying = false;
+function _isIntroAudioActive() { return _audioPlaying; }
+function _syncAudioStopButtons() {
+  document.querySelectorAll('#audioStopBtn, #audioStopBtnInline').forEach(b => {
+    b.classList.toggle('visible', _audioPlaying);
+  });
+}
+function stopIntroAudio() {
+  const audio = document.getElementById('splashAudio');
+  if (audio) { try { audio.pause(); audio.currentTime = 0; } catch (e) {} }
+  _audioPlaying = false;
+  _syncAudioStopButtons();
+}
+// Event delegation para ambos botones (inline aparece/desaparece con el render del SPA)
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#audioStopBtn, #audioStopBtnInline')) {
+    stopIntroAudio();
+  }
+});
+
 (function setupSplash() {
   const splash = document.getElementById('splash');
   const btn = document.getElementById('splashEnter');
   const audio = document.getElementById('splashAudio');
-  const stopBtn = document.getElementById('audioStopBtn');
   if (!splash || !btn) return;
 
-  function hideStopBtn() {
-    if (!stopBtn) return;
-    stopBtn.classList.remove('visible');
-  }
-
-  function stopAudio() {
-    if (!audio) return;
-    try { audio.pause(); audio.currentTime = 0; } catch (e) {}
-    hideStopBtn();
-  }
-
-  if (stopBtn) {
-    stopBtn.addEventListener('click', stopAudio);
-  }
   if (audio) {
-    audio.addEventListener('ended', hideStopBtn);
+    audio.addEventListener('ended', () => { _audioPlaying = false; _syncAudioStopButtons(); });
     audio.addEventListener('pause', () => {
-      // Si el usuario pausó desde el botón nativo o cualquier otra vía
-      if (audio.currentTime === 0 || audio.ended) hideStopBtn();
+      if (audio.currentTime === 0 || audio.ended) { _audioPlaying = false; _syncAudioStopButtons(); }
     });
   }
 
@@ -4410,9 +4430,9 @@ appBoot();
         audio.currentTime = 0;
         audio.volume = 0.25; // arranca bajo y sube suave
         const p = audio.play();
-        if (p && p.then) p.then(() => { if (stopBtn) stopBtn.classList.add('visible'); }).catch(() => {});
-        else if (stopBtn) stopBtn.classList.add('visible');
-        // Fade-in muy suave hasta 0.55 en ~1.2s
+        const onPlaying = () => { _audioPlaying = true; _syncAudioStopButtons(); };
+        if (p && p.then) p.then(onPlaying).catch(() => {});
+        else onPlaying();
         const target = 0.55;
         const steps = 20;
         let i = 0;
