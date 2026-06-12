@@ -1326,6 +1326,36 @@
   .arg-match-meta { font-size: 11px; color: rgba(255,255,255,0.6); }
   .arg-match-tv { font-size: 10.5px; color: #d6e394; margin-top: 2px; letter-spacing: 0.3px; }
   .arg-match-note { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 8px; font-style: italic; line-height: 1.35; }
+  /* Sponsor side block — Viva la Vida */
+  .sponsor-side-block { padding: 0; overflow: hidden; border-color: rgba(236,29,140,0.35); }
+  .sponsor-side-label {
+    font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+    color: rgba(255,138,76,0.85); font-weight: 800;
+    padding: 10px 12px 0; display: block;
+  }
+  .sponsor-side-img-wrap {
+    display: block; margin: 8px 12px 10px; border-radius: 10px; overflow: hidden;
+    background: #ec1d8c; line-height: 0;
+  }
+  .sponsor-side-img { display: block; width: 100%; height: auto; }
+  .sponsor-side-img-fallback {
+    display: none; padding: 26px 14px; text-align: center;
+    color: #fff; font-weight: 800; letter-spacing: 1.2px; font-size: 13px;
+  }
+  .sponsor-side-img.errored { display: none; }
+  .sponsor-side-img.errored + .sponsor-side-img-fallback { display: block; }
+  .sponsor-side-ctas { display: flex; flex-direction: column; gap: 6px; padding: 0 10px 12px; }
+  .sponsor-side-cta {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 8px 10px; border-radius: 8px;
+    font-family: inherit; font-weight: 700; font-size: 11.5px; letter-spacing: 0.3px;
+    text-decoration: none; transition: background 0.18s ease, transform 0.18s ease;
+  }
+  .sponsor-side-cta:hover { transform: translateY(-1px); }
+  .sponsor-side-cta-ig { background: #fff; color: #ec1d8c; }
+  .sponsor-side-cta-ig:hover { background: #ffe2f1; }
+  .sponsor-side-cta-wa { background: #25d366; color: #fff; }
+  .sponsor-side-cta-wa:hover { background: #1ebe5d; }
 
   /* Partidos de hoy */
   .today-row {
@@ -3941,7 +3971,21 @@ function _liveAndUpcomingHTML() {
     </div>`;
   }
 
-  return liveHtml + upHtml + _argentinaScheduleHTML() + _todayMatchesHTML();
+  return liveHtml + upHtml + _argentinaScheduleHTML() + _todayMatchesHTML() + _vivaSponsorBlockHTML();
+}
+
+function _vivaSponsorBlockHTML() {
+  return `<div class="side-block sponsor-side-block">
+    <span class="sponsor-side-label">🌟 Publicidad</span>
+    <a class="sponsor-side-img-wrap" href="https://www.instagram.com/mayoristas.somosind.vivalavida?igsh=bml1MGpyZDI3eG5w" target="_blank" rel="noopener noreferrer" aria-label="Viva la Vida Indumentaria">
+      <img class="sponsor-side-img" src="/assets/vivalavida.png" alt="Viva la Vida Indumentaria" onerror="this.classList.add('errored')">
+      <div class="sponsor-side-img-fallback">VIVA LA VIDA</div>
+    </a>
+    <div class="sponsor-side-ctas">
+      <a class="sponsor-side-cta sponsor-side-cta-ig" href="https://www.instagram.com/mayoristas.somosind.vivalavida?igsh=bml1MGpyZDI3eG5w" target="_blank" rel="noopener noreferrer">📷 Instagram</a>
+      <a class="sponsor-side-cta sponsor-side-cta-wa" href="https://whatsapp.com/channel/0029Vb6H2xQA2pL2tWTI6V1r" target="_blank" rel="noopener noreferrer">💬 Canal WhatsApp</a>
+    </div>
+  </div>`;
 }
 
 // Partidos del día de hoy (en hora ARG)
