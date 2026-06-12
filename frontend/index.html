@@ -2189,11 +2189,12 @@ async function handleRegister() {
 
 async function loadAppData() {
   try {
-    const [fixturesData, predictions, finalPick, leaderboard] = await Promise.all([
+    const [fixturesData, predictions, finalPick, leaderboard, officialResults] = await Promise.all([
       apiFetch('/api/fixtures'),
       apiFetch('/api/predictions/me'),
       apiFetch('/api/final-pick/me'),
-      apiFetch('/api/leaderboard')
+      apiFetch('/api/leaderboard'),
+      apiFetch('/api/results').catch(() => []), // público; si falla, vacío
     ]);
     state.cache.deadlinesUtc = (fixturesData && fixturesData.deadlines_utc) || {};
     state.cache.matchDeadlinesUtc = (fixturesData && fixturesData.match_deadlines_utc) || {};
@@ -2204,6 +2205,16 @@ async function loadAppData() {
       predMap[p.match_id] = { home: p.home_score, away: p.away_score };
     });
     state.cache.predictions = predMap;
+
+    // Resultados oficiales: array {match_id, home_score, away_score, updated_at}
+    // -> dict {match_id: {home, away}} para que el admin panel y el fixture
+    // los pinten al toque (antes solo quedaban en RAM de la sesión del admin
+    // y se "perdían" al recargar).
+    const resultsMap = {};
+    (officialResults || []).forEach(r => {
+      resultsMap[r.match_id] = { home: r.home_score, away: r.away_score };
+    });
+    state.cache.officialResults = resultsMap;
 
     state.cache.finalPick = finalPick
       ? { champion: finalPick.champion, runnerUp: finalPick.runner_up }
@@ -3290,6 +3301,7 @@ async function saveOfficialResult(matchId) {
       body: JSON.stringify({ home_score: parseInt(home), away_score: parseInt(away) })
     });
     state.cache.officialResults[matchId] = { home: res.home_score, away: res.away_score };
+    _resultsCache.at = 0; // forzá refetch en Transparencia
     await refreshLeaderboard();
     showToast('Resultado oficial cargado ✓');
     renderContent();
@@ -3302,6 +3314,7 @@ async function deleteOfficialResult(matchId) {
   try {
     await apiFetch(`/api/admin/result/${encodeURIComponent(matchId)}`, { method: 'DELETE' });
     delete state.cache.officialResults[matchId];
+    _resultsCache.at = 0; // forzá refetch en Transparencia
     await refreshLeaderboard();
     showToast('Resultado borrado ✓');
     renderContent();
