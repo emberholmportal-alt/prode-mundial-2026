@@ -4096,9 +4096,9 @@ async function loadComments() {
   try {
     state.comments = await apiFetch('/api/comments?limit=500') || [];
     // No re-renderizar la lista si hay un comentario abierto en modo edición
-    // (perdería el texto del textarea). La próxima acción del usuario
-    // (guardar/cancelar) refresca todo.
-    if (state.editingCommentId == null) renderCommentsList();
+    // o si hay un form de respuesta abierto (perdería el texto del textarea).
+    // La próxima acción del usuario (guardar/cancelar/responder) refresca todo.
+    if (state.editingCommentId == null && state.replyingToId == null) renderCommentsList();
   } catch (e) { /* silent */ }
 }
 
