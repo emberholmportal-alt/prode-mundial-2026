@@ -1475,6 +1475,53 @@
   .audio-toggle-btn:hover { background: rgba(255,138,76,0.28); border-color: rgba(255,138,76,0.6); transform: scale(1.06); }
   .audio-toggle-btn:active { transform: scale(0.95); }
   .audio-toggle-btn.playing { background: rgba(255,138,76,0.32); border-color: rgba(255,138,76,0.7); color: #fff; box-shadow: 0 0 0 2px rgba(255,138,76,0.18); }
+  /* Modal de quién dio ❤️ a un comentario */
+  .likers-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.62);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9998; padding: 20px; box-sizing: border-box;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+    backdrop-filter: blur(2px);
+  }
+  .likers-modal-overlay.visible { opacity: 1; pointer-events: auto; }
+  .likers-modal-card {
+    position: relative; width: 320px; max-width: 92vw; max-height: 70vh;
+    background: linear-gradient(180deg, #2a2118 0%, #1a130d 100%);
+    color: #fff;
+    border-radius: 14px;
+    border: 1px solid rgba(255,138,76,0.25);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    transform: scale(0.94) translateY(6px); opacity: 0;
+    transition: transform 0.28s cubic-bezier(0.2,0.8,0.2,1), opacity 0.24s ease;
+  }
+  .likers-modal-overlay.visible .likers-modal-card { transform: scale(1) translateY(0); opacity: 1; }
+  .likers-modal-close {
+    position: absolute; top: 8px; right: 8px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(255,255,255,0.06); color: #fff;
+    border: 1px solid rgba(255,255,255,0.12);
+    font-size: 14px; font-weight: 700; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s ease, transform 0.15s ease;
+    z-index: 2;
+  }
+  .likers-modal-close:hover { background: rgba(255,138,76,0.25); border-color: rgba(255,138,76,0.5); transform: scale(1.06); }
+  .likers-modal-list {
+    list-style: none; padding: 22px 18px; margin: 0;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .likers-modal-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .likers-modal-heart { font-size: 14px; line-height: 1; }
+  .likers-modal-name { font-weight: 700; font-size: 13px; color: #fff; }
 </style>
 </head>
 <body>
@@ -1508,6 +1555,12 @@
 
 <div id="app"></div>
 <div id="toast" class="toast"></div>
+<div id="likersModal" class="likers-modal-overlay" role="dialog" aria-modal="true" aria-label="Quiénes dieron me gusta" hidden>
+  <div class="likers-modal-card">
+    <button id="likersModalClose" class="likers-modal-close" type="button" aria-label="Cerrar">✕</button>
+    <ul class="likers-modal-list" id="likersModalList"></ul>
+  </div>
+</div>
 
 <script>
 // =================================================================
@@ -4267,9 +4320,27 @@ async function showLikers(commentId) {
     showToast('Nadie dio like todavía');
     return;
   }
-  const names = likers.map(l => `• ${l.display_name || l.username}`).join('\n');
-  // Modal nativo, simple y efectivo (sin librerías)
-  alert('Dieron ❤️ a este comentario:\n\n' + names);
+  const overlay = document.getElementById('likersModal');
+  const list = document.getElementById('likersModalList');
+  if (!overlay || !list) return;
+  list.innerHTML = likers.map(l => `
+    <li class="likers-modal-item">
+      <span class="likers-modal-heart">❤️</span>
+      <span class="likers-modal-name">${_escHtml(l.display_name || l.username)}</span>
+    </li>`).join('');
+  overlay.hidden = false;
+  void overlay.offsetWidth;
+  overlay.classList.add('visible');
+  function close() {
+    overlay.classList.remove('visible');
+    setTimeout(() => { overlay.hidden = true; }, 280);
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  const closeBtn = document.getElementById('likersModalClose');
+  closeBtn?.addEventListener('click', close, { once: true });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }, { once: true });
+  document.addEventListener('keydown', onKey);
 }
 
 async function updateComment(id, body) {
