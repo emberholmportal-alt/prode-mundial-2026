@@ -2188,6 +2188,7 @@ async function handleLogin() {
     showToast('¡Bienvenido, ' + (res.user.display_name || res.user.username) + '!');
     confetti({ intensity: 'big', palette: 'prode' });
     render();
+    setTimeout(showPromoModal, 1800);
   } catch (e) {
     showAlert(e.message || 'Error al ingresar');
   } finally {
@@ -2269,6 +2270,7 @@ async function handleRegister() {
     showToast('¡Cuenta creada! Bienvenido ' + (res.user.display_name || username));
     confetti({ intensity: 'big', palette: 'prode' });
     render();
+    setTimeout(showPromoModal, 1800);
   } catch (e) {
     const mapped = mapRegisterError(e);
     showAlert(mapped.msg);
@@ -4330,6 +4332,7 @@ async function appBoot() {
     _routeAfterLoad();
     startBackgroundPolling();
     refreshMyStandings();
+    setTimeout(showPromoModal, 1800);
   } catch (e) {
     clearAuth();
     state.currentUser = null;
@@ -4356,8 +4359,6 @@ appBoot();
     splash.classList.add('exploding');
     setTimeout(() => splash.classList.add('dismissed'), 700);
     setTimeout(() => { splash.style.display = 'none'; }, 1500);
-    // Disparar modal publicitario ~2.5s después de entrar
-    setTimeout(showPromoModal, 2500);
   }
 
   btn.addEventListener('click', dismiss, { once: true });
