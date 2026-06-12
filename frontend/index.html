@@ -1445,6 +1445,9 @@
   }
   .promo-modal-cta:hover { background: #ffe2f1; transform: translateY(-1px); }
   .promo-modal-cta:active { transform: translateY(0); }
+  .promo-modal-cta + .promo-modal-cta { border-top: 1px solid rgba(0,0,0,0.06); }
+  .promo-modal-cta-wa { background: #25d366; color: #fff; }
+  .promo-modal-cta-wa:hover { background: #1ebe5d; }
   .promo-modal-cta-icon { display: inline-flex; align-items: center; }
   .promo-modal-close {
     position: absolute; top: 8px; right: 8px;
@@ -1459,6 +1462,25 @@
   @media (prefers-reduced-motion: reduce) {
     .promo-modal-overlay, .promo-modal-card { transition: opacity 0.2s ease; }
     .promo-modal-card { transform: none; }
+  }
+  /* Botón flotante para cortar la música del intro */
+  .audio-stop-btn {
+    position: fixed; bottom: 16px; left: 16px;
+    z-index: 9997;
+    background: rgba(0,0,0,0.6); color: #fff;
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 999px;
+    padding: 8px 14px 8px 12px; font-family: inherit; font-size: 12px;
+    font-weight: 700; letter-spacing: 0.3px; cursor: pointer;
+    display: none; align-items: center; gap: 6px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    opacity: 0; transform: translateY(8px);
+    transition: opacity 0.3s ease, transform 0.3s ease, background 0.15s ease;
+  }
+  .audio-stop-btn.visible { display: inline-flex; opacity: 1; transform: translateY(0); }
+  .audio-stop-btn:hover { background: rgba(0,0,0,0.8); }
+  @media (max-width: 600px) {
+    .audio-stop-btn { bottom: 12px; left: 12px; font-size: 11px; padding: 7px 12px 7px 10px; }
   }
 </style>
 </head>
@@ -1482,11 +1504,18 @@
       </span>
       Acceder al perfil
     </a>
+    <a class="promo-modal-cta promo-modal-cta-wa" href="https://whatsapp.com/channel/0029Vb6H2xQA2pL2tWTI6V1r" target="_blank" rel="noopener noreferrer" aria-label="Unirse al canal de WhatsApp de Viva la Vida">
+      <span class="promo-modal-cta-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.6 6.32A7.85 7.85 0 0 0 12.05 4a7.94 7.94 0 0 0-6.9 11.9L4 20l4.2-1.1a7.93 7.93 0 0 0 3.84 1h.01A7.94 7.94 0 0 0 20 11.96a7.9 7.9 0 0 0-2.4-5.64zM12.05 18.55h-.01a6.6 6.6 0 0 1-3.36-.92l-.24-.14-2.49.65.66-2.43-.16-.25a6.6 6.6 0 1 1 12.27-3.5 6.6 6.6 0 0 1-6.67 6.59zm3.62-4.94c-.2-.1-1.18-.58-1.36-.65-.18-.07-.31-.1-.45.1-.13.2-.51.65-.62.78-.12.13-.23.15-.42.05-.2-.1-.84-.31-1.6-.99-.59-.53-.99-1.18-1.1-1.38-.12-.2-.01-.31.09-.41.09-.1.2-.23.3-.35.1-.12.13-.2.2-.33.07-.13.03-.25-.02-.35-.05-.1-.45-1.09-.62-1.49-.16-.39-.33-.34-.45-.34-.12 0-.25-.02-.39-.02a.75.75 0 0 0-.54.25c-.18.2-.7.69-.7 1.68 0 .99.72 1.95.82 2.08.1.13 1.4 2.13 3.39 2.98.47.2.84.32 1.13.41.47.15.9.13 1.24.08.38-.06 1.18-.48 1.34-.95.17-.47.17-.87.12-.95-.05-.08-.18-.13-.38-.23z"/></svg>
+      </span>
+      Unirse al canal de WhatsApp
+    </a>
   </div>
 </div>
 
 <div id="app"></div>
 <div id="toast" class="toast"></div>
+<button id="audioStopBtn" class="audio-stop-btn" type="button" aria-label="Cortar música del intro">🔇 Cortar música</button>
 
 <script>
 // =================================================================
@@ -4349,12 +4378,52 @@ appBoot();
   const splash = document.getElementById('splash');
   const btn = document.getElementById('splashEnter');
   const audio = document.getElementById('splashAudio');
+  const stopBtn = document.getElementById('audioStopBtn');
   if (!splash || !btn) return;
+
+  function hideStopBtn() {
+    if (!stopBtn) return;
+    stopBtn.classList.remove('visible');
+  }
+
+  function stopAudio() {
+    if (!audio) return;
+    try { audio.pause(); audio.currentTime = 0; } catch (e) {}
+    hideStopBtn();
+  }
+
+  if (stopBtn) {
+    stopBtn.addEventListener('click', stopAudio);
+  }
+  if (audio) {
+    audio.addEventListener('ended', hideStopBtn);
+    audio.addEventListener('pause', () => {
+      // Si el usuario pausó desde el botón nativo o cualquier otra vía
+      if (audio.currentTime === 0 || audio.ended) hideStopBtn();
+    });
+  }
 
   function dismiss() {
     btn.disabled = true;
     if (audio) {
-      try { audio.currentTime = 0; audio.play().catch(() => {}); } catch (e) {}
+      try {
+        audio.currentTime = 0;
+        audio.volume = 0.25; // arranca bajo y sube suave
+        const p = audio.play();
+        if (p && p.then) p.then(() => { if (stopBtn) stopBtn.classList.add('visible'); }).catch(() => {});
+        else if (stopBtn) stopBtn.classList.add('visible');
+        // Fade-in muy suave hasta 0.55 en ~1.2s
+        const target = 0.55;
+        const steps = 20;
+        let i = 0;
+        const stepMs = 60;
+        const inc = (target - audio.volume) / steps;
+        const iv = setInterval(() => {
+          i++;
+          try { audio.volume = Math.min(target, audio.volume + inc); } catch (e) {}
+          if (i >= steps || audio.paused) clearInterval(iv);
+        }, stepMs);
+      } catch (e) {}
     }
     splash.classList.add('exploding');
     setTimeout(() => splash.classList.add('dismissed'), 700);
