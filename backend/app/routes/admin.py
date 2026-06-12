@@ -47,11 +47,14 @@ def upsert_official_result(
             match_id=match_id,
             home_score=payload.home_score,
             away_score=payload.away_score,
+            auto_loaded=False,
         )
         db.add(existing)
     else:
         existing.home_score = payload.home_score
         existing.away_score = payload.away_score
+        # Si lo edita el admin manualmente, deja de ser "auto"
+        existing.auto_loaded = False
 
     db.commit()
     db.refresh(existing)

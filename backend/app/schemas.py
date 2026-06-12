@@ -87,6 +87,7 @@ class OfficialResultOut(BaseModel):
     match_id: str
     home_score: int
     away_score: int
+    auto_loaded: bool = False
     updated_at: datetime
 
 

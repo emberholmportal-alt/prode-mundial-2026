@@ -96,6 +96,10 @@ class OfficialResult(Base):
     match_id: Mapped[str] = mapped_column(String(10), primary_key=True)
     home_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     away_score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    # True si se importó automáticamente desde football-data.org
+    auto_loaded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False),
         nullable=False,
