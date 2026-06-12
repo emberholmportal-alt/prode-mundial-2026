@@ -149,6 +149,7 @@ class UserUpdateAdminIn(BaseModel):
 
 class CommentIn(BaseModel):
     body: str = Field(min_length=1, max_length=500)
+    parent_id: Optional[int] = None  # None = comentario raíz; int = respuesta
 
 
 class CommentOut(BaseModel):
@@ -160,8 +161,19 @@ class CommentOut(BaseModel):
     company: str
     city: str
     body: str
+    parent_id: Optional[int] = None
+    likes_count: int = 0
+    liked_by_me: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
+
+
+class CommentLikerOut(BaseModel):
+    username: str
+    display_name: str
+    company: str
+    city: str
+    created_at: datetime
 
 
 class AdminStats(BaseModel):

@@ -148,6 +148,7 @@ class Comment(Base):
     __table_args__ = (
         CheckConstraint("char_length(body) BETWEEN 1 AND 500", name="ck_comments_body_len"),
         Index("ix_comments_created_at", "created_at"),
+        Index("ix_comments_parent_id", "parent_id"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -155,6 +156,12 @@ class Comment(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     body: Mapped[str] = mapped_column(String(500), nullable=False)
+    # NULL = comentario raíz. Si tiene valor, es una respuesta a otro comment.
+    parent_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("comments.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), nullable=False, server_default=func.now()
     )
@@ -164,3 +171,30 @@ class Comment(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="comments")
+    likes: Mapped[list["CommentLike"]] = relationship(
+        back_populates="comment", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class CommentLike(Base):
+    __tablename__ = "comment_likes"
+    __table_args__ = (
+        Index("ix_comment_likes_comment_id", "comment_id"),
+    )
+
+    comment_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("comments.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), nullable=False, server_default=func.now()
+    )
+
+    comment: Mapped[Comment] = relationship(back_populates="likes")
+    user: Mapped[User] = relationship()

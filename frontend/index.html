@@ -1163,6 +1163,31 @@
   .comment-edit-save { background: var(--naranja, #ff8a4c); border-color: var(--naranja, #ff8a4c); color: #fff; font-weight: 700; }
   .comment-edit-cancel { color: rgba(255,255,255,0.7); }
   .comment-card.editing { border-color: rgba(255,138,76,0.35); background: rgba(255,138,76,0.05); }
+  .comment-footer { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+  .comment-like-btn, .comment-likers-btn, .comment-reply-btn {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.75); border-radius: 14px; padding: 3px 9px; cursor: pointer;
+    font-size: 11px; line-height: 1.2; display: inline-flex; align-items: center; gap: 4px;
+    font-family: inherit;
+  }
+  .comment-like-btn:hover, .comment-likers-btn:hover, .comment-reply-btn:hover {
+    background: rgba(255,138,76,0.12); border-color: rgba(255,138,76,0.35); color: #fff;
+  }
+  .comment-like-btn.liked {
+    background: rgba(255,76,108,0.14); border-color: rgba(255,76,108,0.4); color: #ffb6c4;
+  }
+  .comment-like-btn.liked:hover { background: rgba(255,76,108,0.22); border-color: rgba(255,76,108,0.55); }
+  .comment-likes-count { font-weight: 700; }
+  .comment-reply-form { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+  .comment-depth-0 { margin-left: 0; }
+  .comment-depth-1 { margin-left: 18px; border-left: 2px solid rgba(255,138,76,0.18); padding-left: 10px; }
+  .comment-depth-2 { margin-left: 18px; border-left: 2px solid rgba(255,138,76,0.16); padding-left: 10px; }
+  .comment-depth-3 { margin-left: 18px; border-left: 2px solid rgba(255,138,76,0.14); padding-left: 10px; }
+  .comment-depth-4 { margin-left: 18px; border-left: 2px solid rgba(255,138,76,0.12); padding-left: 10px; }
+  .comment-depth-5 { margin-left: 18px; border-left: 2px solid rgba(255,138,76,0.10); padding-left: 10px; }
+  .comment-card.comment-depth-1, .comment-card.comment-depth-2,
+  .comment-card.comment-depth-3, .comment-card.comment-depth-4,
+  .comment-card.comment-depth-5 { background: rgba(255,255,255,0.025); }
   .comments-form { padding: 10px 14px 16px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; }
   .comments-form textarea {
     flex: 1; resize: none; padding: 10px; border-radius: 10px;
@@ -1721,6 +1746,7 @@ let state = {
   commentsOpen: false,
   commentsLastSeenId: parseInt(localStorage.getItem('prode_comments_last') || '0', 10) || 0,
   editingCommentId: null, // id del comentario en edición inline (o null)
+  replyingToId: null,     // id del comentario al que se le está respondiendo (o null)
   live: null,
   phaseFilter: 'all',
   authMode: 'login',
@@ -3850,7 +3876,21 @@ function _commentsListHTML() {
     return '<div class="side-empty">No hay comentarios todavía. Sé el primero.</div>';
   }
   const cu = state.currentUser;
-  return items.map(c => {
+
+  // Construir árbol: top-level (parent_id == null) + map de hijos por parent_id
+  const byParent = {};
+  const topLevel = [];
+  for (const c of items) {
+    if (c.parent_id == null) topLevel.push(c);
+    else (byParent[c.parent_id] = byParent[c.parent_id] || []).push(c);
+  }
+  // Top-level: orden por fecha desc (newest first). Réplicas: orden cronológico asc.
+  topLevel.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  for (const arr of Object.values(byParent)) {
+    arr.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+  }
+
+  function renderOne(c, depth) {
     const time = new Date(c.created_at + (c.created_at.endsWith('Z') ? '' : 'Z'));
     const when = time.toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
     const tags = [
@@ -3868,8 +3908,17 @@ function _commentsListHTML() {
         <button class="comment-action-btn" type="button" data-comment-delete="${c.id}" title="Borrar">🗑️</button>
       </div>` : '';
     const isEditing = state.editingCommentId === c.id;
+    const isReplying = state.replyingToId === c.id;
+    const liked = !!c.liked_by_me;
+    const likesCount = c.likes_count || 0;
+    const heartBtn = `<button class="comment-like-btn ${liked ? 'liked' : ''}" type="button" data-comment-like="${c.id}" title="${liked ? 'Quitar me gusta' : 'Me gusta'}">${liked ? '❤️' : '🤍'} <span class="comment-likes-count">${likesCount}</span></button>`;
+    const likersBtn = likesCount > 0 ? `<button class="comment-likers-btn" type="button" data-comment-likers="${c.id}" title="Ver quién dio like">👥</button>` : '';
+    const replyBtn = cu ? `<button class="comment-reply-btn" type="button" data-comment-reply="${c.id}" title="Responder">💬 Responder</button>` : '';
+    const depthClass = `comment-depth-${Math.min(depth, 5)}`;
+
+    let inner;
     if (isEditing) {
-      return `<div class="comment-card editing" data-comment-card="${c.id}">
+      inner = `
         <div class="comment-head">
           <span class="comment-name">${c.display_name || c.username}</span>
           ${tags}
@@ -3881,19 +3930,38 @@ function _commentsListHTML() {
             <button type="button" class="comment-action-btn comment-edit-cancel" data-comment-edit-cancel="${c.id}">Cancelar</button>
             <button type="submit" class="comment-action-btn comment-edit-save">Guardar</button>
           </div>
-        </form>
-      </div>`;
+        </form>`;
+    } else {
+      inner = `
+        <div class="comment-head">
+          <span class="comment-name">${c.display_name || c.username}</span>
+          ${tags}
+          <span class="comment-meta">${when}${editedBadge}</span>
+          ${actions}
+        </div>
+        <div class="comment-body">${safe}</div>
+        <div class="comment-footer">${heartBtn}${likersBtn}${replyBtn}</div>`;
     }
-    return `<div class="comment-card" data-comment-card="${c.id}">
-      <div class="comment-head">
-        <span class="comment-name">${c.display_name || c.username}</span>
-        ${tags}
-        <span class="comment-meta">${when}${editedBadge}</span>
-        ${actions}
-      </div>
-      <div class="comment-body">${safe}</div>
+
+    const replyFormHtml = isReplying ? `
+      <form class="comment-reply-form" data-comment-reply-form="${c.id}">
+        <textarea class="comment-edit-input" data-comment-reply-input maxlength="500" rows="2" placeholder="Respondiendo a @${c.username}…"></textarea>
+        <div class="comment-edit-buttons">
+          <button type="button" class="comment-action-btn comment-reply-cancel" data-comment-reply-cancel="${c.id}">Cancelar</button>
+          <button type="submit" class="comment-action-btn comment-edit-save">Responder</button>
+        </div>
+      </form>` : '';
+
+    const children = (byParent[c.id] || []).map(child => renderOne(child, depth + 1)).join('');
+
+    return `<div class="comment-card ${isEditing ? 'editing' : ''} ${depthClass}" data-comment-card="${c.id}">
+      ${inner}
+      ${replyFormHtml}
+      ${children}
     </div>`;
-  }).join('');
+  }
+
+  return topLevel.map(c => renderOne(c, 0)).join('');
 }
 
 function renderCommentsList() {
@@ -3933,7 +4001,7 @@ function _trackCommentsSeen() {
 
 async function loadComments() {
   try {
-    state.comments = await apiFetch('/api/comments?limit=100') || [];
+    state.comments = await apiFetch('/api/comments?limit=500') || [];
     // No re-renderizar la lista si hay un comentario abierto en modo edición
     // (perdería el texto del textarea). La próxima acción del usuario
     // (guardar/cancelar) refresca todo.
@@ -3979,7 +4047,7 @@ function bindCommentsForms() {
       });
     }
   });
-  // Edit/Delete buttons + edit form (event delegation a [data-comments-list])
+  // Event delegation en el contenedor para todos los botones inline
   document.querySelectorAll('[data-comments-list]').forEach(list => {
     if (list._modBound) return;
     list._modBound = true;
@@ -3987,8 +4055,8 @@ function bindCommentsForms() {
       const ed = e.target.closest('[data-comment-edit]');
       if (ed) {
         state.editingCommentId = parseInt(ed.dataset.commentEdit, 10);
+        state.replyingToId = null;
         renderCommentsList();
-        // foco al textarea
         setTimeout(() => {
           const inp = document.querySelector('[data-comment-edit-input]');
           if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
@@ -4004,20 +4072,111 @@ function bindCommentsForms() {
       const del = e.target.closest('[data-comment-delete]');
       if (del) {
         const id = parseInt(del.dataset.commentDelete, 10);
-        if (confirm('¿Borrar este comentario? No se puede deshacer.')) deleteComment(id);
+        if (confirm('¿Borrar este comentario? Se borran también sus respuestas. No se puede deshacer.')) deleteComment(id);
+        return;
+      }
+      const lk = e.target.closest('[data-comment-like]');
+      if (lk) {
+        const id = parseInt(lk.dataset.commentLike, 10);
+        toggleCommentLike(id);
+        return;
+      }
+      const lkrs = e.target.closest('[data-comment-likers]');
+      if (lkrs) {
+        const id = parseInt(lkrs.dataset.commentLikers, 10);
+        showLikers(id);
+        return;
+      }
+      const rp = e.target.closest('[data-comment-reply]');
+      if (rp) {
+        state.replyingToId = parseInt(rp.dataset.commentReply, 10);
+        state.editingCommentId = null;
+        renderCommentsList();
+        setTimeout(() => {
+          const inp = document.querySelector('[data-comment-reply-input]');
+          if (inp) inp.focus();
+        }, 30);
+        return;
+      }
+      const rpc = e.target.closest('[data-comment-reply-cancel]');
+      if (rpc) {
+        state.replyingToId = null;
+        renderCommentsList();
         return;
       }
     });
     list.addEventListener('submit', (e) => {
-      const form = e.target.closest('[data-comment-edit-form]');
-      if (!form) return;
-      e.preventDefault();
-      const id = parseInt(form.dataset.commentEditForm, 10);
-      const inp = form.querySelector('[data-comment-edit-input]');
-      const body = inp ? inp.value : '';
-      updateComment(id, body);
+      const editForm = e.target.closest('[data-comment-edit-form]');
+      if (editForm) {
+        e.preventDefault();
+        const id = parseInt(editForm.dataset.commentEditForm, 10);
+        const inp = editForm.querySelector('[data-comment-edit-input]');
+        updateComment(id, inp ? inp.value : '');
+        return;
+      }
+      const replyForm = e.target.closest('[data-comment-reply-form]');
+      if (replyForm) {
+        e.preventDefault();
+        const parentId = parseInt(replyForm.dataset.commentReplyForm, 10);
+        const inp = replyForm.querySelector('[data-comment-reply-input]');
+        postReply(parentId, inp ? inp.value : '');
+        return;
+      }
     });
   });
+}
+
+async function toggleCommentLike(id) {
+  const c = (state.comments || []).find(x => x.id === id);
+  if (!c) return;
+  const wasLiked = !!c.liked_by_me;
+  // Optimistic
+  c.liked_by_me = !wasLiked;
+  c.likes_count = Math.max(0, (c.likes_count || 0) + (wasLiked ? -1 : 1));
+  renderCommentsList();
+  try {
+    await apiFetch(`/api/comments/${id}/like`, { method: wasLiked ? 'DELETE' : 'POST' });
+  } catch (e) {
+    // Revert
+    c.liked_by_me = wasLiked;
+    c.likes_count = Math.max(0, (c.likes_count || 0) + (wasLiked ? 1 : -1));
+    renderCommentsList();
+    showToast(e.message || 'No se pudo registrar el like', 'error');
+  }
+}
+
+async function postReply(parentId, body) {
+  const trimmed = (body || '').trim();
+  if (!trimmed) { showToast('No puede estar vacío', 'error'); return; }
+  try {
+    const created = await apiFetch('/api/comments', {
+      method: 'POST',
+      body: JSON.stringify({ body: trimmed, parent_id: parentId })
+    });
+    state.comments.push(created);
+    state.replyingToId = null;
+    renderCommentsList();
+    showToast('Respuesta enviada ✓');
+  } catch (e) {
+    showToast(e.message || 'Error al responder', 'error');
+  }
+}
+
+async function showLikers(commentId) {
+  let likers;
+  try {
+    likers = await apiFetch(`/api/comments/${commentId}/likes`);
+  } catch (e) {
+    showToast(e.message || 'No se pudo obtener la lista', 'error');
+    return;
+  }
+  if (!Array.isArray(likers) || likers.length === 0) {
+    showToast('Nadie dio like todavía');
+    return;
+  }
+  const names = likers.map(l => `• ${l.display_name || l.username}`).join('\n');
+  // Modal nativo, simple y efectivo (sin librerías)
+  alert('Dieron ❤️ a este comentario:\n\n' + names);
 }
 
 async function updateComment(id, body) {
