@@ -4703,13 +4703,23 @@ function _handlePostLoginEffects() {
   }
 }
 
-function showForceChangePasswordModal() {
+function _isPwdChangeRequired() {
+  return !!(state.currentUser && state.currentUser.must_change_password);
+}
+
+function _openPwdChangeOverlay() {
   const overlay = document.getElementById('pwdChangeModal');
   if (!overlay) return;
   overlay.hidden = false;
   void overlay.offsetWidth;
   overlay.classList.add('visible');
   setTimeout(() => { document.getElementById('pwdCurrent')?.focus(); }, 100);
+}
+
+function showForceChangePasswordModal() {
+  const overlay = document.getElementById('pwdChangeModal');
+  if (!overlay) return;
+  _openPwdChangeOverlay();
 
   const form = document.getElementById('pwdChangeForm');
   const errBox = document.getElementById('pwdChangeError');
@@ -4717,10 +4727,30 @@ function showForceChangePasswordModal() {
   if (!form || form._bound) return;
   form._bound = true;
 
-  // Bloquear cierre por Esc — es obligatorio
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !overlay.hidden) e.preventDefault();
+  // Bloquear Esc en captura (no se cierra el modal ni por accidente).
+  const blockEsc = (e) => {
+    if (e.key === 'Escape' && _isPwdChangeRequired()) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+    }
+  };
+  document.addEventListener('keydown', blockEsc, true);
+  document.addEventListener('keyup', blockEsc, true);
+
+  // Auto-reapertura: si por cualquier motivo (extensión, código externo,
+  // re-render) el modal se cierra mientras la pwd sigue siendo obligatoria,
+  // lo volvemos a abrir.
+  const mo = new MutationObserver(() => {
+    if (_isPwdChangeRequired()) {
+      if (overlay.hidden) overlay.hidden = false;
+      if (!overlay.classList.contains('visible')) {
+        void overlay.offsetWidth;
+        overlay.classList.add('visible');
+      }
+    }
   });
+  mo.observe(overlay, { attributes: true, attributeFilter: ['hidden', 'class', 'style'] });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
