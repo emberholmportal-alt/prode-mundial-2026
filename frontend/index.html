@@ -1463,37 +1463,18 @@
     .promo-modal-overlay, .promo-modal-card { transition: opacity 0.2s ease; }
     .promo-modal-card { transform: none; }
   }
-  /* Botón inline para cortar la música — al lado del nombre de usuario */
-  .audio-stop-inline {
-    display: none; align-items: center; justify-content: center;
+  /* Botón toggle de música — al lado del nombre de usuario */
+  .audio-toggle-btn {
+    display: inline-flex; align-items: center; justify-content: center;
     width: 30px; height: 30px; border-radius: 50%;
     background: rgba(255,138,76,0.15); color: #ffd0a8;
     border: 1px solid rgba(255,138,76,0.35);
     font-size: 14px; cursor: pointer; padding: 0;
     transition: background 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
   }
-  .audio-stop-inline.visible { display: inline-flex; }
-  .audio-stop-inline:hover { background: rgba(255,138,76,0.28); border-color: rgba(255,138,76,0.6); transform: scale(1.06); }
-  .audio-stop-inline:active { transform: scale(0.95); }
-  /* Botón flotante para cortar la música del intro (fallback antes del login) */
-  .audio-stop-btn {
-    position: fixed; bottom: 16px; left: 16px;
-    z-index: 9997;
-    background: rgba(0,0,0,0.6); color: #fff;
-    border: 1px solid rgba(255,255,255,0.18); border-radius: 999px;
-    padding: 8px 14px 8px 12px; font-family: inherit; font-size: 12px;
-    font-weight: 700; letter-spacing: 0.3px; cursor: pointer;
-    display: none; align-items: center; gap: 6px;
-    backdrop-filter: blur(4px);
-    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-    opacity: 0; transform: translateY(8px);
-    transition: opacity 0.3s ease, transform 0.3s ease, background 0.15s ease;
-  }
-  .audio-stop-btn.visible { display: inline-flex; opacity: 1; transform: translateY(0); }
-  .audio-stop-btn:hover { background: rgba(0,0,0,0.8); }
-  @media (max-width: 600px) {
-    .audio-stop-btn { bottom: 12px; left: 12px; font-size: 11px; padding: 7px 12px 7px 10px; }
-  }
+  .audio-toggle-btn:hover { background: rgba(255,138,76,0.28); border-color: rgba(255,138,76,0.6); transform: scale(1.06); }
+  .audio-toggle-btn:active { transform: scale(0.95); }
+  .audio-toggle-btn.playing { background: rgba(255,138,76,0.32); border-color: rgba(255,138,76,0.7); color: #fff; box-shadow: 0 0 0 2px rgba(255,138,76,0.18); }
 </style>
 </head>
 <body>
@@ -1527,7 +1508,6 @@
 
 <div id="app"></div>
 <div id="toast" class="toast"></div>
-<button id="audioStopBtn" class="audio-stop-btn" type="button" aria-label="Cortar música del intro">🔇 Cortar música</button>
 
 <script>
 // =================================================================
@@ -2462,7 +2442,7 @@ function renderApp() {
       <div class="user-info-stack">
         <div class="user-info">
           <span class="user-badge">👤 ${u.display_name || u.username}</span>
-          <button id="audioStopBtnInline" class="audio-stop-inline" type="button" aria-label="Cortar música del intro" title="Cortar música">🔇</button>
+          <button id="audioToggleBtn" class="audio-toggle-btn" type="button" aria-label="Activar o cortar música">🎵</button>
           ${isAdmin ? '<span class="workplace-badge">⚙️ Admin</span>' : ''}
           <button class="btn-logout" id="btnLogout">Salir</button>
         </div>
@@ -4391,10 +4371,11 @@ appBoot();
 // =================================================================
 // Estado y helpers de audio del intro — accesibles desde cualquier parte
 let _audioPlaying = false;
-function _isIntroAudioActive() { return _audioPlaying; }
 function _syncAudioStopButtons() {
-  document.querySelectorAll('#audioStopBtn, #audioStopBtnInline').forEach(b => {
-    b.classList.toggle('visible', _audioPlaying);
+  document.querySelectorAll('#audioToggleBtn').forEach(b => {
+    b.classList.toggle('playing', _audioPlaying);
+    b.textContent = _audioPlaying ? '🔇' : '🎵';
+    b.setAttribute('title', _audioPlaying ? 'Cortar música' : 'Activar música');
   });
 }
 function stopIntroAudio() {
@@ -4403,48 +4384,52 @@ function stopIntroAudio() {
   _audioPlaying = false;
   _syncAudioStopButtons();
 }
-// Event delegation para ambos botones (inline aparece/desaparece con el render del SPA)
+function playIntroAudio() {
+  const audio = document.getElementById('splashAudio');
+  if (!audio) return;
+  try {
+    audio.currentTime = 0;
+    audio.volume = 0.25;
+    const p = audio.play();
+    const onPlaying = () => { _audioPlaying = true; _syncAudioStopButtons(); };
+    if (p && p.then) p.then(onPlaying).catch(() => {});
+    else onPlaying();
+    const target = 0.55;
+    const steps = 20;
+    let i = 0;
+    const inc = (target - audio.volume) / steps;
+    const iv = setInterval(() => {
+      i++;
+      try { audio.volume = Math.min(target, audio.volume + inc); } catch (e) {}
+      if (i >= steps || audio.paused) clearInterval(iv);
+    }, 60);
+  } catch (e) {}
+}
+function toggleIntroAudio() {
+  if (_audioPlaying) stopIntroAudio();
+  else playIntroAudio();
+}
+// Event delegation — el botón aparece/desaparece con el render del SPA
 document.addEventListener('click', (e) => {
-  if (e.target.closest('#audioStopBtn, #audioStopBtnInline')) {
-    stopIntroAudio();
-  }
+  if (e.target.closest('#audioToggleBtn')) toggleIntroAudio();
 });
+// Sincronizar cuando el track termina o lo pausa otra cosa
+(function bindAudioElement() {
+  const audio = document.getElementById('splashAudio');
+  if (!audio) return;
+  audio.addEventListener('ended', () => { _audioPlaying = false; _syncAudioStopButtons(); });
+  audio.addEventListener('pause', () => {
+    if (audio.currentTime === 0 || audio.ended) { _audioPlaying = false; _syncAudioStopButtons(); }
+  });
+})();
 
 (function setupSplash() {
   const splash = document.getElementById('splash');
   const btn = document.getElementById('splashEnter');
-  const audio = document.getElementById('splashAudio');
   if (!splash || !btn) return;
-
-  if (audio) {
-    audio.addEventListener('ended', () => { _audioPlaying = false; _syncAudioStopButtons(); });
-    audio.addEventListener('pause', () => {
-      if (audio.currentTime === 0 || audio.ended) { _audioPlaying = false; _syncAudioStopButtons(); }
-    });
-  }
 
   function dismiss() {
     btn.disabled = true;
-    if (audio) {
-      try {
-        audio.currentTime = 0;
-        audio.volume = 0.25; // arranca bajo y sube suave
-        const p = audio.play();
-        const onPlaying = () => { _audioPlaying = true; _syncAudioStopButtons(); };
-        if (p && p.then) p.then(onPlaying).catch(() => {});
-        else onPlaying();
-        const target = 0.55;
-        const steps = 20;
-        let i = 0;
-        const stepMs = 60;
-        const inc = (target - audio.volume) / steps;
-        const iv = setInterval(() => {
-          i++;
-          try { audio.volume = Math.min(target, audio.volume + inc); } catch (e) {}
-          if (i >= steps || audio.paused) clearInterval(iv);
-        }, stepMs);
-      } catch (e) {}
-    }
     splash.classList.add('exploding');
     setTimeout(() => splash.classList.add('dismissed'), 700);
     setTimeout(() => { splash.style.display = 'none'; }, 1500);
