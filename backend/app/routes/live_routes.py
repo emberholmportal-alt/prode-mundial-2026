@@ -1,9 +1,15 @@
-"""Live match polling.
+"""Live match polling + auto-sync de OfficialResult cuando un partido FINISHED.
 
 Si FOOTBALL_DATA_TOKEN está definido en el entorno, hace polling cada 60s al
 endpoint de football-data.org (`/v4/competitions/WC/matches`) y mapea los
 partidos vivos. Si no, devuelve solo el estado calculado desde el FIXTURE
 local (kickoff vs ahora).
+
+Como bonus, después del fetch sincroniza con la tabla `official_results`:
+para cada partido remoto con status=FINISHED que coincide con un partido
+de fase de grupos de nuestro FIXTURE (matcheado por tla home/away + kickoff
+UTC) y todavía no tiene OfficialResult en la DB, lo crea con auto_loaded=True.
+NO sobreescribe lo que el admin ya cargó manualmente.
 """
 import json
 import os
@@ -20,6 +26,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..fixtures import FIXTURE
 from ..limiter import limiter
+from ..models import OfficialResult
 
 router = APIRouter(tags=["live"])
 
@@ -68,6 +75,67 @@ def _fetch_remote() -> Optional[list[dict]]:
     return matches
 
 
+# Lookup (home_tla, away_tla, utc_kickoff) -> match_id, solo fase de grupos
+# (los knockouts tienen equipos TBD hasta que se decidan).
+def _build_match_lookup() -> dict[tuple[str, str, str], str]:
+    lookup: dict[tuple[str, str, str], str] = {}
+    for m in FIXTURE:
+        if m.get("phase") != "grupos":
+            continue
+        key = (m["home"].upper(), m["away"].upper(), m["datetime_utc"])
+        lookup[key] = m["id"]
+    return lookup
+
+
+_MATCH_LOOKUP: dict[tuple[str, str, str], str] = _build_match_lookup()
+
+
+def _sync_finished_results(db: Session, remote_matches: list[dict]) -> int:
+    """Sincroniza partidos FINISHED de football-data.org con OfficialResult.
+
+    - Solo crea filas nuevas; nunca pisa lo que el admin ya cargó.
+    - Solo procesa partidos de fase de grupos (los knockouts tienen TBD).
+    - Devuelve la cantidad de filas nuevas insertadas.
+    """
+    if not remote_matches:
+        return 0
+    synced = 0
+    try:
+        for rm in remote_matches:
+            status = (rm.get("status") or "").upper()
+            if status != "FINISHED":
+                continue
+            hs, as_ = rm.get("home_score"), rm.get("away_score")
+            if hs is None or as_ is None:
+                continue
+            home_tla = (rm.get("home_tla") or "").upper()
+            away_tla = (rm.get("away_tla") or "").upper()
+            kickoff = rm.get("utc_kickoff")
+            if not (home_tla and away_tla and kickoff):
+                continue
+            key = (home_tla, away_tla, kickoff)
+            match_id = _MATCH_LOOKUP.get(key)
+            if match_id is None:
+                continue
+            # No pisar lo que ya está cargado (manual o auto)
+            existing = db.get(OfficialResult, match_id)
+            if existing is not None:
+                continue
+            db.add(OfficialResult(
+                match_id=match_id,
+                home_score=int(hs),
+                away_score=int(as_),
+                auto_loaded=True,
+            ))
+            synced += 1
+        if synced > 0:
+            db.commit()
+    except Exception:
+        db.rollback()
+        return 0
+    return synced
+
+
 def _local_status(now: datetime) -> dict:
     """Encuentra partidos en curso (kickoff ≤ now ≤ kickoff + 2h) y el próximo."""
     live: list[dict] = []
@@ -101,6 +169,9 @@ def live_status(request: Request, db: Session = Depends(get_db)):
         with _lock:
             _cache["payload"] = remote_matches
             _cache["at"] = time.monotonic()
+        # Auto-sync de partidos FINISHED → official_results (no pisa manuales)
+        if remote_matches:
+            _sync_finished_results(db, remote_matches)
     else:
         remote_matches = cached
 

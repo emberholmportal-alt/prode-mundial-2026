@@ -1893,18 +1893,17 @@ function setButtonBusy(id, busyText) {
 const PTS_CAMPEON = 10;
 const PTS_SUBCAMPEON = 5;
 
+// Mismo cálculo que backend/app/scoring.py (3 exacto / 1 mismo signo / 0)
 function calcPoints(prediction, official) {
   if (!prediction || !official) return 0;
   if (prediction.home == null || prediction.away == null) return 0;
   if (official.home == null || official.away == null) return 0;
   const pH = +prediction.home, pA = +prediction.away;
   const oH = +official.home, oA = +official.away;
-  if (pH === oH && pA === oA) return 5;
-  const pW = pH > pA ? 'H' : (pH < pA ? 'A' : 'E');
-  const oW = oH > oA ? 'H' : (oH < oA ? 'A' : 'E');
-  if (pW !== oW) return 0;
-  if ((pH - pA) === (oH - oA)) return 3;
-  return 1;
+  if (pH === oH && pA === oA) return 3;
+  const sign = (x) => x > 0 ? 1 : (x < 0 ? -1 : 0);
+  if (sign(pH - pA) === sign(oH - oA)) return 1;
+  return 0;
 }
 
 // =================================================================
