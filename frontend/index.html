@@ -380,6 +380,24 @@
   .phase-btn.active {
     background: var(--dorado); color: var(--negro); border-color: var(--dorado);
   }
+  /* Pestaña "Hoy" — late suavemente cuando hay partidos del día y no está activa */
+  .phase-btn.phase-today {
+    background: rgba(255, 76, 76, 0.12);
+    border-color: rgba(255, 76, 76, 0.55);
+    color: #ffd4d4;
+  }
+  .phase-btn.phase-today:hover { color: #fff; border-color: #ff7a7a; background: rgba(255, 76, 76, 0.22); }
+  .phase-btn.phase-today.active { background: #ff4c4c; color: #fff; border-color: #ff4c4c; }
+  .phase-btn.phase-today.beats {
+    animation: phaseTodayBeat 1.8s ease-in-out infinite;
+  }
+  @keyframes phaseTodayBeat {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 76, 76, 0.45); }
+    50%      { transform: scale(1.06); box-shadow: 0 0 0 8px rgba(255, 76, 76, 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .phase-btn.phase-today.beats { animation: none; }
+  }
 
   /* === MATCHES === */
   .match-group { margin-bottom: 28px; }
@@ -2616,8 +2634,13 @@ function renderFixture() {
   const predicted = Object.keys(predictions).length;
   const played = Object.keys(officialResults).length;
 
+  const todayArt = _todayArtDate();
+  const todayMatches = FIXTURE.filter(m => m.date === todayArt);
+  const hasMatchesToday = todayMatches.length > 0;
+
   const phases = [
     { key: 'all', label: 'Todos' },
+    { key: 'hoy', label: `⚡ Hoy${hasMatchesToday ? ` (${todayMatches.length})` : ''}` },
     { key: 'grupos', label: 'Grupos' },
     { key: 'dieciseisavos', label: '16vos' },
     { key: 'octavos', label: 'Octavos' },
@@ -2627,7 +2650,10 @@ function renderFixture() {
     { key: 'final', label: 'FINAL' }
   ];
 
-  let filtered = state.phaseFilter === 'all' ? FIXTURE : FIXTURE.filter(m => m.phase === state.phaseFilter);
+  let filtered;
+  if (state.phaseFilter === 'hoy') filtered = todayMatches;
+  else if (state.phaseFilter === 'all') filtered = FIXTURE;
+  else filtered = FIXTURE.filter(m => m.phase === state.phaseFilter);
 
   // Banner informativo de la fase. El cierre real ahora es por PARTIDO
   // individual (kickoff − 1h), no por fase, así que el banner solo recuerda
@@ -2641,6 +2667,20 @@ function renderFixture() {
   }
 
   let groupedHtml = '';
+  if (state.phaseFilter === 'hoy') {
+    const sorted = [...filtered].sort((a, b) => _matchKickoffMs(a) - _matchKickoffMs(b));
+    if (sorted.length === 0) {
+      groupedHtml = `<div class="empty-state"><span class="icon">📅</span>Hoy no hay partidos. Volvé otro día o mirá las próximas fases.</div>`;
+    } else {
+      groupedHtml = `<div class="match-group">
+        <div class="match-group-title">⚡ PARTIDOS DE HOY</div>
+        <div class="phase-locked-banner" style="border-color:rgba(255,76,76,0.45);color:#ffd4d4;background:rgba(255,76,76,0.08);">
+          ⏳ <span>Cada partido se puede cargar o modificar hasta <strong>1 hora antes de su kickoff</strong>. ¡No te quedes afuera!</span>
+        </div>
+        ${sorted.map(m => renderMatch(m, predictions, officialResults)).join('')}
+      </div>`;
+    }
+  }
   if (state.phaseFilter === 'all' || state.phaseFilter === 'grupos') {
     const byGroup = {};
     filtered.filter(m => m.phase === 'grupos').forEach(m => {
@@ -2684,7 +2724,12 @@ function renderFixture() {
   </div>
 
   <div class="phase-filter">
-    ${phases.map(p => `<button class="phase-btn ${state.phaseFilter === p.key ? 'active' : ''}" data-phase="${p.key}">${p.label}</button>`).join('')}
+    ${phases.map(p => {
+      const isActive = state.phaseFilter === p.key;
+      const isToday = p.key === 'hoy';
+      const extra = isToday ? ` phase-today${hasMatchesToday && !isActive ? ' beats' : ''}` : '';
+      return `<button class="phase-btn${isActive ? ' active' : ''}${extra}" data-phase="${p.key}">${p.label}</button>`;
+    }).join('')}
   </div>
 
   ${groupedHtml || '<div class="empty-state"><span class="icon">⚽</span>No hay partidos para mostrar.</div>'}`;
@@ -3802,6 +3847,13 @@ function _formatCountdown(ms) {
 
 function _teamNameOrCode(code) {
   return (TEAMS[code] && TEAMS[code].name) || code;
+}
+
+function _todayArtDate() {
+  // Devuelve YYYY-MM-DD según la fecha actual en hora Argentina (UTC-3).
+  // Useful para filtrar el FIXTURE cuyo `date` ya viene en ART.
+  const nowArt = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  return nowArt.toISOString().slice(0, 10);
 }
 
 function _matchKickoffMs(m) {
