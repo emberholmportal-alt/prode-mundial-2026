@@ -1188,7 +1188,7 @@
   .comment-card.comment-depth-1, .comment-card.comment-depth-2,
   .comment-card.comment-depth-3, .comment-card.comment-depth-4,
   .comment-card.comment-depth-5 { background: rgba(255,255,255,0.025); }
-  .comments-form { padding: 10px 14px 16px; border-top: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; }
+  .comments-form { padding: 10px 14px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; gap: 6px; }
   .comments-form textarea {
     flex: 1; resize: none; padding: 10px; border-radius: 10px;
     background: rgba(255,255,255,0.04); color: #fff; border: 1px solid rgba(255,255,255,0.1);
@@ -1326,8 +1326,8 @@
   .comments-side { display: flex; flex-direction: column; min-height: 0; height: 100%; }
   .comments-side .comments-header { padding: 4px 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 8px; }
   .comments-side .comments-header h3 { margin: 0; font-size: 13px; letter-spacing: 2px; color: #ffd0a8; }
-  .comments-side .comments-list { flex: 1; overflow-y: auto; padding: 0 2px; display: flex; flex-direction: column; gap: 10px; min-height: 100px; max-height: calc(100vh - 220px); }
-  .comments-side .comments-form { padding: 8px 0 0; border-top: 1px solid rgba(255,255,255,0.08); margin-top: 8px; }
+  .comments-side .comments-list { flex: 1; overflow-y: auto; padding: 0 2px; display: flex; flex-direction: column; gap: 10px; min-height: 100px; max-height: calc(100vh - 160px); }
+  .comments-side .comments-form { padding: 0 0 10px; border-top: 0; border-bottom: 1px solid rgba(255,255,255,0.08); margin-top: 0; margin-bottom: 10px; }
 
   /* Tabs visibles solo en mobile */
   .tab.mobile-only { display: none; }
@@ -1340,8 +1340,8 @@
   /* Cuando estamos en mobile y la vista 'comments'/'live' está activa,
      el contenedor del tab usa todo el ancho */
   .tab-fullview { padding: 12px 16px; }
-  .tab-fullview .comments-side { height: 70vh; }
-  .tab-fullview .comments-list { max-height: 60vh; }
+  .tab-fullview .comments-side { height: 82vh; }
+  .tab-fullview .comments-list { max-height: 75vh; }
 
   /* === SPLASH / INTRO (logo GG CUP + botón Entrar + música) === */
   .splash-overlay {
@@ -4119,11 +4119,11 @@ function renderCommentsList() {
 function _commentsBlockHTML() {
   return `<div class="side-block comments-side">
     <div class="comments-header"><h3>💬 Comentarios</h3></div>
-    <div class="comments-list" data-comments-list>${_commentsListHTML()}</div>
     <form class="comments-form" data-comments-form>
       <textarea data-comment-input placeholder="Escribí algo…" maxlength="500" rows="2"></textarea>
       <button type="submit" data-comment-send>Enviar</button>
     </form>
+    <div class="comments-list" data-comments-list>${_commentsListHTML()}</div>
   </div>`;
 }
 
