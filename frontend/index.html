@@ -1407,6 +1407,49 @@
     .splash-logo, .splash-tagline, .splash-enter-btn { animation: none !important; }
     .splash-overlay.exploding .splash-logo { transform: none; }
   }
+  /* Modal publicitario Viva la Vida */
+  .promo-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.62);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9998; padding: 20px; box-sizing: border-box;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.35s ease;
+    backdrop-filter: blur(2px);
+  }
+  .promo-modal-overlay.visible { opacity: 1; pointer-events: auto; }
+  .promo-modal-card {
+    position: relative; width: 280px; max-width: 90vw;
+    background: #ec1d8c; border-radius: 14px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
+    overflow: hidden;
+    transform: scale(0.92) translateY(8px); opacity: 0;
+    transition: transform 0.38s cubic-bezier(0.2,0.8,0.2,1), opacity 0.32s ease;
+  }
+  .promo-modal-overlay.visible .promo-modal-card { transform: scale(1) translateY(0); opacity: 1; }
+  .promo-modal-link { display: block; line-height: 0; color: inherit; text-decoration: none; }
+  .promo-modal-img { display: block; width: 100%; height: auto; user-select: none; }
+  .promo-modal-fallback {
+    display: none; padding: 36px 20px; text-align: center;
+    color: #fff; font-weight: 800; letter-spacing: 1.5px; font-size: 14px;
+    background: #ec1d8c;
+  }
+  .promo-modal-fallback small { display: block; font-size: 11px; opacity: 0.85; margin-top: 6px; letter-spacing: 0.5px; font-weight: 600; }
+  .promo-modal-img.errored { display: none; }
+  .promo-modal-img.errored + .promo-modal-fallback { display: block; }
+  .promo-modal-close {
+    position: absolute; top: 8px; right: 8px;
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(0,0,0,0.45); color: #fff; border: none;
+    font-size: 16px; font-weight: 700; line-height: 1; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s ease, transform 0.15s ease;
+    z-index: 2;
+  }
+  .promo-modal-close:hover { background: rgba(0,0,0,0.7); transform: scale(1.08); }
+  @media (prefers-reduced-motion: reduce) {
+    .promo-modal-overlay, .promo-modal-card { transition: opacity 0.2s ease; }
+    .promo-modal-card { transform: none; }
+  }
 </style>
 </head>
 <body>
@@ -1416,6 +1459,16 @@
   <p class="splash-tagline">Prode Mundial 2026 · Grupo Gestión</p>
   <button id="splashEnter" class="splash-enter-btn" type="button">⚽ Entrar</button>
   <audio id="splashAudio" src="/assets/intro-wc.mp3" preload="auto" playsinline></audio>
+</div>
+
+<div id="promoModal" class="promo-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="promoModalTitle" aria-hidden="true" hidden>
+  <div class="promo-modal-card">
+    <button id="promoModalClose" class="promo-modal-close" type="button" aria-label="Cerrar publicidad">✕</button>
+    <a class="promo-modal-link" href="https://www.instagram.com/mayoristas.somosind.vivalavida?igsh=bml1MGpyZDI3eG5w" target="_blank" rel="noopener noreferrer" id="promoModalTitle" aria-label="Viva la Vida Indumentaria en Instagram">
+      <img class="promo-modal-img" src="/assets/vivalavida.png" alt="Viva la Vida Indumentaria">
+      <div class="promo-modal-fallback">VIVA LA VIDA<small>INDUMENTARIA · seguinos en Instagram</small></div>
+    </a>
+  </div>
 </div>
 
 <div id="app"></div>
@@ -4289,10 +4342,44 @@ appBoot();
     splash.classList.add('exploding');
     setTimeout(() => splash.classList.add('dismissed'), 700);
     setTimeout(() => { splash.style.display = 'none'; }, 1500);
+    // Disparar modal publicitario ~2.5s después de entrar
+    setTimeout(showPromoModal, 2500);
   }
 
   btn.addEventListener('click', dismiss, { once: true });
 })();
+
+// =================================================================
+// MODAL PUBLICITARIO — aparece una vez por carga, después del splash
+// =================================================================
+let _promoShown = false;
+function showPromoModal() {
+  if (_promoShown) return;
+  const overlay = document.getElementById('promoModal');
+  if (!overlay) return;
+  _promoShown = true;
+  overlay.hidden = false;
+  overlay.setAttribute('aria-hidden', 'false');
+  // Forzar reflow para que la transición CSS se dispare
+  void overlay.offsetWidth;
+  overlay.classList.add('visible');
+
+  const closeBtn = document.getElementById('promoModalClose');
+  function close() {
+    overlay.classList.remove('visible');
+    overlay.setAttribute('aria-hidden', 'true');
+    setTimeout(() => { overlay.hidden = true; }, 360);
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  closeBtn?.addEventListener('click', close, { once: true });
+  // Click fuera de la tarjeta cierra
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }, { once: true });
+  document.addEventListener('keydown', onKey);
+  // Fallback si la imagen no carga
+  const img = overlay.querySelector('.promo-modal-img');
+  if (img) img.addEventListener('error', () => img.classList.add('errored'), { once: true });
+}
 </script>
 
 </body>
