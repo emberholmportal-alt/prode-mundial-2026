@@ -43,6 +43,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     dni: Mapped[str] = mapped_column(String(10), nullable=False)
     email: Mapped[str] = mapped_column(String(200), nullable=False)
     sector: Mapped[str] = mapped_column(String(100), nullable=False)

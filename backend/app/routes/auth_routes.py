@@ -14,7 +14,7 @@ from ..auth import (
 from ..database import get_db
 from ..limiter import limiter
 from ..models import User
-from ..schemas import AuthOut, LoginIn, RegisterIn, UserPrivateOut
+from ..schemas import AuthOut, ChangePasswordIn, LoginIn, RegisterIn, UserPrivateOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -85,4 +85,26 @@ def login(request: Request, payload: LoginIn, db: Session = Depends(get_db)):
 
 @router.get("/me", response_model=UserPrivateOut)
 def me(user: User = Depends(get_current_user)):
+    return UserPrivateOut.model_validate(user)
+
+
+@router.post("/change-password", response_model=UserPrivateOut)
+@limiter.limit("10/minute")
+def change_password(
+    request: Request,
+    payload: ChangePasswordIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Contraseña actual incorrecta")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(
+            status_code=400,
+            detail="La contraseña nueva no puede ser igual a la actual",
+        )
+    user.password_hash = hash_password(payload.new_password)
+    user.must_change_password = False
+    db.commit()
+    db.refresh(user)
     return UserPrivateOut.model_validate(user)
