@@ -1463,6 +1463,25 @@
     .promo-modal-overlay, .promo-modal-card { transition: opacity 0.2s ease; }
     .promo-modal-card { transform: none; }
   }
+  /* Botón flotante para cortar la música del intro */
+  .audio-stop-btn {
+    position: fixed; bottom: 16px; left: 16px;
+    z-index: 9997;
+    background: rgba(0,0,0,0.6); color: #fff;
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 999px;
+    padding: 8px 14px 8px 12px; font-family: inherit; font-size: 12px;
+    font-weight: 700; letter-spacing: 0.3px; cursor: pointer;
+    display: none; align-items: center; gap: 6px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    opacity: 0; transform: translateY(8px);
+    transition: opacity 0.3s ease, transform 0.3s ease, background 0.15s ease;
+  }
+  .audio-stop-btn.visible { display: inline-flex; opacity: 1; transform: translateY(0); }
+  .audio-stop-btn:hover { background: rgba(0,0,0,0.8); }
+  @media (max-width: 600px) {
+    .audio-stop-btn { bottom: 12px; left: 12px; font-size: 11px; padding: 7px 12px 7px 10px; }
+  }
 </style>
 </head>
 <body>
@@ -1496,6 +1515,7 @@
 
 <div id="app"></div>
 <div id="toast" class="toast"></div>
+<button id="audioStopBtn" class="audio-stop-btn" type="button" aria-label="Cortar música del intro">🔇 Cortar música</button>
 
 <script>
 // =================================================================
@@ -4358,12 +4378,52 @@ appBoot();
   const splash = document.getElementById('splash');
   const btn = document.getElementById('splashEnter');
   const audio = document.getElementById('splashAudio');
+  const stopBtn = document.getElementById('audioStopBtn');
   if (!splash || !btn) return;
+
+  function hideStopBtn() {
+    if (!stopBtn) return;
+    stopBtn.classList.remove('visible');
+  }
+
+  function stopAudio() {
+    if (!audio) return;
+    try { audio.pause(); audio.currentTime = 0; } catch (e) {}
+    hideStopBtn();
+  }
+
+  if (stopBtn) {
+    stopBtn.addEventListener('click', stopAudio);
+  }
+  if (audio) {
+    audio.addEventListener('ended', hideStopBtn);
+    audio.addEventListener('pause', () => {
+      // Si el usuario pausó desde el botón nativo o cualquier otra vía
+      if (audio.currentTime === 0 || audio.ended) hideStopBtn();
+    });
+  }
 
   function dismiss() {
     btn.disabled = true;
     if (audio) {
-      try { audio.currentTime = 0; audio.play().catch(() => {}); } catch (e) {}
+      try {
+        audio.currentTime = 0;
+        audio.volume = 0.25; // arranca bajo y sube suave
+        const p = audio.play();
+        if (p && p.then) p.then(() => { if (stopBtn) stopBtn.classList.add('visible'); }).catch(() => {});
+        else if (stopBtn) stopBtn.classList.add('visible');
+        // Fade-in muy suave hasta 0.55 en ~1.2s
+        const target = 0.55;
+        const steps = 20;
+        let i = 0;
+        const stepMs = 60;
+        const inc = (target - audio.volume) / steps;
+        const iv = setInterval(() => {
+          i++;
+          try { audio.volume = Math.min(target, audio.volume + inc); } catch (e) {}
+          if (i >= steps || audio.paused) clearInterval(iv);
+        }, stepMs);
+      } catch (e) {}
     }
     splash.classList.add('exploding');
     setTimeout(() => splash.classList.add('dismissed'), 700);
