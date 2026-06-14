@@ -10,6 +10,7 @@ from ..deadlines import get_match_kickoff_utc
 from ..fixtures import FIXTURE_BY_ID, TEAMS
 from ..limiter import limiter
 from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
+from .live_routes import force_sync_now, sync_state_snapshot
 from ..schemas import (
     AdminStats,
     OfficialFinalIn,
@@ -127,6 +128,40 @@ def delete_official_final(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Resultado final no cargado")
     db.delete(existing)
     db.commit()
+
+
+@router.get("/sync-debug")
+@limiter.limit("30/minute")
+def sync_debug(request: Request, db: Session = Depends(get_db)):
+    """Snapshot del estado del auto-sync con football-data.org. No fuerza fetch.
+
+    Útil para entender por qué un partido FINISHED no se cargó solo:
+    devuelve token_present, edad del cache, último error, y total de FINISHED
+    actualmente vistos por la API.
+    """
+    snap = sync_state_snapshot()
+    loaded_auto = db.scalar(
+        select(func.count(OfficialResult.match_id)).where(OfficialResult.auto_loaded.is_(True))
+    ) or 0
+    loaded_manual = db.scalar(
+        select(func.count(OfficialResult.match_id)).where(OfficialResult.auto_loaded.is_(False))
+    ) or 0
+    return {
+        **snap,
+        "official_results_auto_loaded": int(loaded_auto),
+        "official_results_manual": int(loaded_manual),
+    }
+
+
+@router.post("/sync-now")
+@limiter.limit("10/minute")
+def sync_now(request: Request, db: Session = Depends(get_db)):
+    """Fuerza un fetch fresh a football-data.org (ignora cache) y corre el sync.
+
+    Devuelve diagnóstico detallado: cantidad sincronizada, total de FINISHED,
+    cuáles no matchearon y por qué (TLA distinto, kickoff distinto, etc.).
+    """
+    return force_sync_now(db)
 
 
 @router.get("/stats", response_model=AdminStats)

@@ -97,29 +97,63 @@ def _sync_finished_results(db: Session, remote_matches: list[dict]) -> int:
     - Solo procesa partidos de fase de grupos (los knockouts tienen TBD).
     - Devuelve la cantidad de filas nuevas insertadas.
     """
+    diag = _sync_with_diagnostics(db, remote_matches)
+    return diag["synced"]
+
+
+def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
+    """Igual que _sync_finished_results pero devuelve detalle del por qué no
+    matchearon ciertos partidos FINISHED. Útil para el endpoint admin de debug.
+    """
+    out: dict = {
+        "synced": 0,
+        "finished_total": 0,
+        "already_loaded": 0,
+        "unmatched": [],   # FINISHED que no encontraron pareja en el FIXTURE
+    }
     if not remote_matches:
-        return 0
-    synced = 0
+        return out
     try:
         for rm in remote_matches:
             status = (rm.get("status") or "").upper()
             if status != "FINISHED":
                 continue
+            out["finished_total"] += 1
             hs, as_ = rm.get("home_score"), rm.get("away_score")
-            if hs is None or as_ is None:
-                continue
             home_tla = (rm.get("home_tla") or "").upper()
             away_tla = (rm.get("away_tla") or "").upper()
             kickoff = rm.get("utc_kickoff")
+            base_info = {
+                "home_tla": home_tla,
+                "away_tla": away_tla,
+                "utc_kickoff": kickoff,
+                "home_score": hs,
+                "away_score": as_,
+            }
+            if hs is None or as_ is None:
+                out["unmatched"].append({**base_info, "reason": "sin scores"})
+                continue
             if not (home_tla and away_tla and kickoff):
+                out["unmatched"].append({**base_info, "reason": "datos incompletos"})
                 continue
             key = (home_tla, away_tla, kickoff)
             match_id = _MATCH_LOOKUP.get(key)
             if match_id is None:
+                # Probamos un fallback laxo: solo por par de TLAs (cualquier kickoff)
+                fallback = [mid for (h, a, _ko), mid in _MATCH_LOOKUP.items()
+                            if h == home_tla and a == away_tla]
+                if fallback:
+                    out["unmatched"].append({
+                        **base_info,
+                        "reason": "kickoff no coincide",
+                        "fixture_match_id_por_tla": fallback[0],
+                    })
+                else:
+                    out["unmatched"].append({**base_info, "reason": "TLAs no matchean FIXTURE"})
                 continue
-            # No pisar lo que ya está cargado (manual o auto)
             existing = db.get(OfficialResult, match_id)
             if existing is not None:
+                out["already_loaded"] += 1
                 continue
             db.add(OfficialResult(
                 match_id=match_id,
@@ -127,13 +161,54 @@ def _sync_finished_results(db: Session, remote_matches: list[dict]) -> int:
                 away_score=int(as_),
                 auto_loaded=True,
             ))
-            synced += 1
-        if synced > 0:
+            out["synced"] += 1
+        if out["synced"] > 0:
             db.commit()
-    except Exception:
+    except Exception as e:  # noqa: BLE001
         db.rollback()
-        return 0
-    return synced
+        out["error"] = str(e)
+    return out
+
+
+def force_sync_now(db: Session) -> dict:
+    """Limpia cache, refetcha y corre el sync. Devuelve diagnóstico completo."""
+    with _lock:
+        _cache["payload"] = None
+        _cache["at"] = 0.0
+        _cache["error"] = None
+    remote = _fetch_remote()
+    diag = _sync_with_diagnostics(db, remote or [])
+    with _lock:
+        _cache["payload"] = remote
+        _cache["at"] = time.monotonic()
+        last_error = _cache.get("error")
+    return {
+        "token_present": bool(FOOTBALL_DATA_TOKEN),
+        "remote_available": remote is not None,
+        "remote_count": len(remote) if remote else 0,
+        "last_error": last_error,
+        **diag,
+    }
+
+
+def sync_state_snapshot() -> dict:
+    """Snapshot del estado actual sin forzar fetch (usa cache vigente)."""
+    with _lock:
+        cached = _cache.get("payload")
+        at = _cache.get("at") or 0.0
+        last_error = _cache.get("error")
+    age_s = max(0.0, time.monotonic() - at) if at else None
+    finished_count = 0
+    if cached:
+        finished_count = sum(1 for rm in cached if (rm.get("status") or "").upper() == "FINISHED")
+    return {
+        "token_present": bool(FOOTBALL_DATA_TOKEN),
+        "remote_available": cached is not None,
+        "remote_count": len(cached) if cached else 0,
+        "remote_finished_count": finished_count,
+        "cache_age_seconds": round(age_s, 1) if age_s is not None else None,
+        "last_error": last_error,
+    }
 
 
 def _local_status(now: datetime) -> dict:

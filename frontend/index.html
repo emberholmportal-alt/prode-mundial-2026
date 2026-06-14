@@ -3481,6 +3481,15 @@ function renderAdmin() {
     <br><small style="opacity:0.8;">El backend no expone GET de resultados, así que los inputs arrancan vacíos en cada carga; lo que cargues durante la sesión queda visible hasta refrescar.</small>
   </div>
 
+  <div class="admin-banner" style="border-color:rgba(0,200,83,0.4);background:rgba(0,200,83,0.06);">
+    <strong>🛰️ Auto-sync de resultados (football-data.org)</strong>
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn-save" id="btnSyncDebug" style="background:rgba(255,255,255,0.08);">🔍 Diagnosticar sync</button>
+      <button class="btn-save" id="btnSyncNow">⚡ Forzar sync ahora</button>
+    </div>
+    <pre id="syncOutput" style="display:none;margin-top:10px;padding:10px;background:rgba(0,0,0,0.4);border-radius:8px;font-size:11px;color:#d6e394;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;"></pre>
+  </div>
+
   <div class="champion-card">
     <div class="champion-header">
       <div class="champion-trophy">🏆</div>
@@ -3764,6 +3773,33 @@ function bindContent() {
   if (btnSaveFinalOfficial) btnSaveFinalOfficial.onclick = saveOfficialFinal;
   const goToCampeon = document.getElementById('goToCampeon');
   if (goToCampeon) goToCampeon.onclick = () => { state.view = 'campeon'; renderContent(); };
+
+  const btnSyncDebug = document.getElementById('btnSyncDebug');
+  const btnSyncNow = document.getElementById('btnSyncNow');
+  const syncOut = document.getElementById('syncOutput');
+  async function runSyncEndpoint(path, method, btn, label) {
+    if (!syncOut || !btn) return;
+    const reset = setButtonBusy(btn.id, label);
+    syncOut.style.display = 'block';
+    syncOut.textContent = 'Llamando…';
+    try {
+      const data = await apiFetch(path, { method });
+      syncOut.textContent = JSON.stringify(data, null, 2);
+      if (path.endsWith('/sync-now')) {
+        await Promise.allSettled([loadAppData(), refreshMyStandings && refreshMyStandings()]);
+        renderContent();
+        const msg = `Sync OK · creados: ${data.synced || 0} · sin match: ${(data.unmatched || []).length}`;
+        showToast(msg, (data.synced > 0) ? 'success' : 'info');
+      }
+    } catch (e) {
+      syncOut.textContent = 'Error: ' + (e.message || e);
+      showToast('No se pudo ejecutar el sync', 'error');
+    } finally {
+      if (reset) reset();
+    }
+  }
+  if (btnSyncDebug) btnSyncDebug.onclick = () => runSyncEndpoint('/api/admin/sync-debug', 'GET', btnSyncDebug, 'Consultando…');
+  if (btnSyncNow) btnSyncNow.onclick = () => runSyncEndpoint('/api/admin/sync-now', 'POST', btnSyncNow, 'Sincronizando…');
 }
 
 // =================================================================
