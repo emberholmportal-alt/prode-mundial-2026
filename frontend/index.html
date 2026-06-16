@@ -1611,47 +1611,9 @@
   }
   .pwd-modal-submit:hover { background: #ff9a5e; }
   .pwd-modal-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-  /* Cartel bloqueante "Fuera" — tapa absolutamente todo */
-  .blocker-overlay {
-    position: fixed; inset: 0; z-index: 2147483647;
-    background: #000;
-    display: flex; align-items: center; justify-content: center;
-    padding: 0; margin: 0;
-    overflow: hidden; touch-action: none;
-  }
-  .blocker-img {
-    display: block;
-    max-width: 100vw; max-height: 100vh;
-    width: auto; height: auto;
-    object-fit: contain;
-    user-select: none; -webkit-user-drag: none;
-    pointer-events: none;
-  }
 </style>
 </head>
 <body>
-
-<div id="blockerOverlay" class="blocker-overlay" role="alert" aria-live="assertive">
-  <img class="blocker-img" src="/assets/fuera.png" alt="Aviso" draggable="false">
-</div>
-<script>
-  // Cartel bloqueante: mientras esté visible, nada del resto de la página
-  // recibe foco, scroll ni input. No expone botón para cerrarlo.
-  (function lockSite() {
-    document.documentElement.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    // Sellar el resto del documento (splash, app, modales) con inert.
-    document.addEventListener('DOMContentLoaded', () => {
-      const blocker = document.getElementById('blockerOverlay');
-      if (!blocker) return;
-      [...document.body.children].forEach(el => {
-        if (el === blocker || el.tagName === 'SCRIPT') return;
-        try { el.setAttribute('inert', ''); } catch (e) {}
-        el.setAttribute('aria-hidden', 'true');
-      });
-    });
-  })();
-</script>
 
 <div id="splash" class="splash-overlay" aria-hidden="false">
   <img src="/assets/logo-gg-cup.png" alt="GG CUP 2026" class="splash-logo">
