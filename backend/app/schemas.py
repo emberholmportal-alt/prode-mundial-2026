@@ -118,6 +118,10 @@ class LeaderboardRow(BaseModel):
     predicted_count: int
     correct_exact: int
     correct_result: int
+    # Promedio (en segundos) de anticipación con la que cargó/editó cada
+    # pronóstico respecto al kickoff. Se usa como criterio de desempate
+    # cuando puntos + aciertos están iguales. None si no tiene pronósticos.
+    avg_anticipation_seconds: Optional[float] = None
 
 
 _AVATAR_STYLES = {"avataaars"}
