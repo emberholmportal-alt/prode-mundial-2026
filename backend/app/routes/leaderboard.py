@@ -7,6 +7,7 @@ from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..deadlines import get_match_kickoff_utc
 from ..limiter import limiter
 from ..models import CITIES, COMPANIES, FinalPick, OfficialFinal, OfficialResult, Prediction, User
 from ..scoring import calc_final_points
@@ -113,6 +114,36 @@ def _compute_leaderboard(db: Session, company: Optional[str], city: Optional[str
     )
     predicted_by_user = {uid: int(n) for uid, n in db.execute(pred_count_stmt).all()}
 
+    # Anticipación promedio por usuario: segundos entre updated_at del pronóstico
+    # y el kickoff del partido. Se usa como criterio de desempate (más
+    # anticipación = mejor). El kickoff vive en código (FIXTURE), no en DB,
+    # así que lo calculamos en Python.
+    pred_times_stmt = select(
+        Prediction.user_id, Prediction.match_id, Prediction.updated_at
+    )
+    sum_by_user: dict[int, float] = {}
+    n_by_user: dict[int, int] = {}
+    for uid, match_id, updated_at in db.execute(pred_times_stmt).all():
+        try:
+            kickoff = get_match_kickoff_utc(match_id)
+        except Exception:
+            continue
+        # updated_at viene del DB sin tz; lo tratamos como UTC (así está cargado).
+        if updated_at.tzinfo is None:
+            from datetime import timezone as _tz
+            upd = updated_at.replace(tzinfo=_tz.utc)
+        else:
+            upd = updated_at
+        delta = (kickoff - upd).total_seconds()
+        # Ignorar valores negativos (edición post-kickoff por algún motivo raro).
+        if delta < 0:
+            continue
+        sum_by_user[uid] = sum_by_user.get(uid, 0.0) + delta
+        n_by_user[uid] = n_by_user.get(uid, 0) + 1
+    avg_anticipation_by_user: dict[int, float] = {
+        uid: sum_by_user[uid] / n_by_user[uid] for uid in sum_by_user
+    }
+
     official_final = db.get(OfficialFinal, 1)
     final_picks_by_user: dict[int, FinalPick] = {}
     if official_final and official_final.champion:
@@ -152,10 +183,25 @@ def _compute_leaderboard(db: Session, company: Optional[str], city: Optional[str
                 "predicted_count": predicted_by_user.get(u.id, 0),
                 "correct_exact": scored["correct_exact"],
                 "correct_result": scored["correct_result"],
+                "avg_anticipation_seconds": avg_anticipation_by_user.get(u.id),
             }
         )
 
-    rows.sort(key=lambda r: (-r["points"], -r["correct_exact"], r["display_name"].lower()))
+    # Orden:
+    # 1) puntos DESC
+    # 2) aciertos exactos DESC
+    # 3) aciertos al resultado DESC
+    # 4) anticipación promedio DESC (sin datos = peor)
+    # 5) display_name ASC (último recurso)
+    rows.sort(
+        key=lambda r: (
+            -r["points"],
+            -r["correct_exact"],
+            -r["correct_result"],
+            -(r["avg_anticipation_seconds"] or 0.0),
+            r["display_name"].lower(),
+        )
+    )
     return rows
 
 
