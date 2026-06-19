@@ -2735,7 +2735,12 @@ function renderFixture() {
   const played = Object.keys(officialResults).length;
 
   const todayArt = _todayArtDate();
-  const todayMatches = FIXTURE.filter(m => m.date === todayArt);
+  const _todayStartMs = _todayViewingDayStartMs();
+  const _todayEndMs = _todayStartMs + 24 * 60 * 60 * 1000;
+  const todayMatches = FIXTURE.filter(m => {
+    const ko = _matchKickoffMs(m);
+    return Number.isFinite(ko) && ko >= _todayStartMs && ko < _todayEndMs;
+  });
   const hasMatchesToday = todayMatches.length > 0;
 
   const phases = [
@@ -3992,6 +3997,24 @@ function _todayArtDate() {
   return nowArt.toISOString().slice(0, 10);
 }
 
+function _todayViewingDayStartMs() {
+  // Devuelve el ms timestamp del inicio de la "jornada de fútbol de hoy".
+  // La jornada arranca a las 05:00 ART y termina a las 05:00 ART del día
+  // siguiente. Así, partidos que arrancan entre 00:00 y 05:00 ART (típicas
+  // madrugadas de partidos en costa oeste de USA / Vancouver) cuentan como
+  // la noche del día anterior, que es como los vive el espectador.
+  const artNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const todayArtMidnight = Date.UTC(
+    artNow.getUTCFullYear(), artNow.getUTCMonth(), artNow.getUTCDate(), 0, 0, 0
+  );
+  // Pasar a UTC ms reales (la "medianoche ART" en UTC es +3h)
+  const today5amArtMs = todayArtMidnight + 3 * 60 * 60 * 1000 + 5 * 60 * 60 * 1000;
+  if (artNow.getUTCHours() < 5) {
+    return today5amArtMs - 24 * 60 * 60 * 1000;
+  }
+  return today5amArtMs;
+}
+
 function _matchKickoffMs(m) {
   // El FIXTURE local tiene date (YYYY-MM-DD) y time (HH:MM) en hora ARG (UTC-3).
   // Si viniera del backend ya tendría datetime_utc; soportamos ambos.
@@ -4107,10 +4130,14 @@ function _todayARTDate() {
 }
 
 function _todayMatchesHTML() {
-  const today = _todayARTDate();
+  const startMs = _todayViewingDayStartMs();
+  const endMs = startMs + 24 * 60 * 60 * 1000;
   const todayMatches = FIXTURE
-    .filter(m => m.date === today)
-    .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    .filter(m => {
+      const ko = _matchKickoffMs(m);
+      return Number.isFinite(ko) && ko >= startMs && ko < endMs;
+    })
+    .sort((a, b) => _matchKickoffMs(a) - _matchKickoffMs(b));
 
   if (todayMatches.length === 0) {
     return `<div class="side-block">
