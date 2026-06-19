@@ -2735,12 +2735,9 @@ function renderFixture() {
   const played = Object.keys(officialResults).length;
 
   const todayArt = _todayArtDate();
-  const _todayStartMs = _todayViewingDayStartMs();
-  const _todayEndMs = _todayStartMs + 24 * 60 * 60 * 1000;
-  const todayMatches = FIXTURE.filter(m => {
-    const ko = _matchKickoffMs(m);
-    return Number.isFinite(ko) && ko >= _todayStartMs && ko < _todayEndMs;
-  });
+  const tomorrowArt = _tomorrowArtDate();
+  const todayMatches = FIXTURE.filter(m => m.date === todayArt);
+  const tomorrowMatches = FIXTURE.filter(m => m.date === tomorrowArt);
   const hasMatchesToday = todayMatches.length > 0;
 
   const phases = [
@@ -2756,7 +2753,7 @@ function renderFixture() {
   ];
 
   let filtered;
-  if (state.phaseFilter === 'hoy') filtered = todayMatches;
+  if (state.phaseFilter === 'hoy') filtered = [...todayMatches, ...tomorrowMatches];
   else if (state.phaseFilter === 'all') filtered = FIXTURE;
   else filtered = FIXTURE.filter(m => m.phase === state.phaseFilter);
 
@@ -2773,17 +2770,28 @@ function renderFixture() {
 
   let groupedHtml = '';
   if (state.phaseFilter === 'hoy') {
-    const sorted = [...filtered].sort((a, b) => _matchKickoffMs(a) - _matchKickoffMs(b));
-    if (sorted.length === 0) {
-      groupedHtml = `<div class="empty-state"><span class="icon">📅</span>Hoy no hay partidos. Volvé otro día o mirá las próximas fases.</div>`;
+    const todaySorted = [...todayMatches].sort((a, b) => _matchKickoffMs(a) - _matchKickoffMs(b));
+    const tomorrowSorted = [...tomorrowMatches].sort((a, b) => _matchKickoffMs(a) - _matchKickoffMs(b));
+    if (todaySorted.length === 0 && tomorrowSorted.length === 0) {
+      groupedHtml = `<div class="empty-state"><span class="icon">📅</span>No hay partidos hoy ni mañana. Volvé otro día o mirá las próximas fases.</div>`;
     } else {
-      groupedHtml = `<div class="match-group">
-        <div class="match-group-title">⚡ PARTIDOS DE HOY</div>
-        <div class="phase-locked-banner" style="border-color:rgba(255,76,76,0.45);color:#ffd4d4;background:rgba(255,76,76,0.08);">
-          ⏳ <span>Cada partido se puede cargar o modificar hasta <strong>1 hora antes de su kickoff</strong>. ¡No te quedes afuera!</span>
-        </div>
-        ${sorted.map(m => renderMatch(m, predictions, officialResults)).join('')}
-      </div>`;
+      if (todaySorted.length > 0) {
+        groupedHtml += `<div class="match-group">
+          <div class="match-group-title">⚡ PARTIDOS DE HOY</div>
+          <div class="phase-locked-banner" style="border-color:rgba(255,76,76,0.45);color:#ffd4d4;background:rgba(255,76,76,0.08);">
+            ⏳ <span>Cada partido se puede cargar o modificar hasta <strong>1 hora antes de su kickoff</strong>. ¡No te quedes afuera!</span>
+          </div>
+          ${todaySorted.map(m => renderMatch(m, predictions, officialResults)).join('')}
+        </div>`;
+      } else {
+        groupedHtml += `<div class="empty-state" style="margin-bottom:18px;"><span class="icon">📅</span>Hoy no hay partidos.</div>`;
+      }
+      if (tomorrowSorted.length > 0) {
+        groupedHtml += `<div class="match-group">
+          <div class="match-group-title">📅 PARTIDOS DE MAÑANA</div>
+          ${tomorrowSorted.map(m => renderMatch(m, predictions, officialResults)).join('')}
+        </div>`;
+      }
     }
   }
   if (state.phaseFilter === 'all' || state.phaseFilter === 'grupos') {
@@ -3997,22 +4005,10 @@ function _todayArtDate() {
   return nowArt.toISOString().slice(0, 10);
 }
 
-function _todayViewingDayStartMs() {
-  // Devuelve el ms timestamp del inicio de la "jornada de fútbol de hoy".
-  // La jornada arranca a las 05:00 ART y termina a las 05:00 ART del día
-  // siguiente. Así, partidos que arrancan entre 00:00 y 05:00 ART (típicas
-  // madrugadas de partidos en costa oeste de USA / Vancouver) cuentan como
-  // la noche del día anterior, que es como los vive el espectador.
-  const artNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
-  const todayArtMidnight = Date.UTC(
-    artNow.getUTCFullYear(), artNow.getUTCMonth(), artNow.getUTCDate(), 0, 0, 0
-  );
-  // Pasar a UTC ms reales (la "medianoche ART" en UTC es +3h)
-  const today5amArtMs = todayArtMidnight + 3 * 60 * 60 * 1000 + 5 * 60 * 60 * 1000;
-  if (artNow.getUTCHours() < 5) {
-    return today5amArtMs - 24 * 60 * 60 * 1000;
-  }
-  return today5amArtMs;
+function _tomorrowArtDate() {
+  // YYYY-MM-DD del día siguiente al actual en hora Argentina (UTC-3).
+  const nowArt = new Date(Date.now() - 3 * 60 * 60 * 1000 + 24 * 60 * 60 * 1000);
+  return nowArt.toISOString().slice(0, 10);
 }
 
 function _matchKickoffMs(m) {
@@ -4130,14 +4126,10 @@ function _todayARTDate() {
 }
 
 function _todayMatchesHTML() {
-  const startMs = _todayViewingDayStartMs();
-  const endMs = startMs + 24 * 60 * 60 * 1000;
+  const today = _todayARTDate();
   const todayMatches = FIXTURE
-    .filter(m => {
-      const ko = _matchKickoffMs(m);
-      return Number.isFinite(ko) && ko >= startMs && ko < endMs;
-    })
-    .sort((a, b) => _matchKickoffMs(a) - _matchKickoffMs(b));
+    .filter(m => m.date === today)
+    .sort((a, b) => (a.time || '').localeCompare(b.time || ''));
 
   if (todayMatches.length === 0) {
     return `<div class="side-block">
