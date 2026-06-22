@@ -1333,15 +1333,8 @@
     color: rgba(255,138,76,0.85); font-weight: 800;
     padding: 10px 12px 0; display: block;
   }
-  .sponsor-side-brand {
-    background: #ec1d8c; color: #fff;
-    margin: 8px 12px 0; border-radius: 10px 10px 0 0;
-    padding: 7px 8px; text-align: center;
-    font-weight: 800; font-size: 11px; letter-spacing: 1.5px;
-    text-transform: uppercase; line-height: 1.1;
-  }
   .sponsor-side-img-wrap {
-    display: block; margin: 0 12px 10px; border-radius: 0 0 10px 10px; overflow: hidden;
+    display: block; margin: 8px 12px 10px; border-radius: 10px; overflow: hidden;
     background: #ec1d8c; line-height: 0;
   }
   .sponsor-side-img { display: block; width: 100%; height: auto; }
@@ -1482,13 +1475,6 @@
   }
   .promo-modal-overlay.visible .promo-modal-card { transform: scale(1) translateY(0); opacity: 1; }
   .promo-modal-img { display: block; width: 100%; height: auto; user-select: none; }
-  .promo-modal-brand {
-    background: #ec1d8c; color: #fff;
-    padding: 10px 12px; text-align: center;
-    font-weight: 800; font-size: 13px; letter-spacing: 2px;
-    text-transform: uppercase;
-    border-bottom: 1px solid rgba(255,255,255,0.18);
-  }
   .promo-modal-fallback {
     display: none; padding: 36px 20px; text-align: center;
     color: #fff; font-weight: 800; letter-spacing: 1.5px; font-size: 14px;
@@ -1639,8 +1625,7 @@
 <div id="promoModal" class="promo-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="promoModalTitle" aria-hidden="true" hidden>
   <div class="promo-modal-card">
     <button id="promoModalClose" class="promo-modal-close" type="button" aria-label="Cerrar publicidad">✕</button>
-    <div class="promo-modal-brand" id="promoModalTitle">VIVA LA VIDA · INDUMENTARIA</div>
-    <img class="promo-modal-img" src="/assets/vivalavida.png" alt="Viva la Vida Indumentaria">
+    <img class="promo-modal-img" src="/assets/vivalavida.png" alt="Viva la Vida Indumentaria" id="promoModalTitle">
     <div class="promo-modal-fallback">VIVA LA VIDA<small>INDUMENTARIA</small></div>
     <a class="promo-modal-cta" href="https://www.instagram.com/mayoristas.somosind.vivalavida?igsh=bml1MGpyZDI3eG5w" target="_blank" rel="noopener noreferrer" aria-label="Acceder al perfil de Instagram de Viva la Vida">
       <span class="promo-modal-cta-icon" aria-hidden="true">
@@ -4102,7 +4087,6 @@ function _liveAndUpcomingHTML() {
 function _vivaSponsorBlockHTML() {
   return `<div class="side-block sponsor-side-block">
     <span class="sponsor-side-label">🌟 Publicidad</span>
-    <div class="sponsor-side-brand">VIVA LA VIDA · INDUMENTARIA</div>
     <a class="sponsor-side-img-wrap" href="https://www.instagram.com/mayoristas.somosind.vivalavida?igsh=bml1MGpyZDI3eG5w" target="_blank" rel="noopener noreferrer" aria-label="Viva la Vida Indumentaria">
       <img class="sponsor-side-img" src="/assets/vivalavida.png" alt="Viva la Vida Indumentaria" onerror="this.classList.add('errored')">
       <div class="sponsor-side-img-fallback">VIVA LA VIDA</div>
