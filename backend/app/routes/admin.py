@@ -10,7 +10,7 @@ from ..deadlines import get_match_kickoff_utc
 from ..fixtures import FIXTURE_BY_ID, TEAMS
 from ..limiter import limiter
 from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
-from .live_routes import force_sync_now, sync_state_snapshot
+from .live_routes import audit_official_results, force_sync_now, sync_state_snapshot
 from ..schemas import (
     AdminStats,
     OfficialFinalIn,
@@ -162,6 +162,20 @@ def sync_now(request: Request, db: Session = Depends(get_db)):
     cuáles no matchearon y por qué (TLA distinto, kickoff distinto, etc.).
     """
     return force_sync_now(db)
+
+
+@router.get("/results-audit")
+@limiter.limit("10/minute")
+def results_audit(request: Request, db: Session = Depends(get_db)):
+    """Compara cada OfficialResult cargado contra football-data.org.
+
+    Resultado: lista con status por partido (ok/mismatch/remote_unfinished/
+    remote_not_found/knockout_skipped) + contadores. Útil para auditar que
+    los resultados manuales que cargaste coincidan con los oficiales.
+
+    Knockouts no se auditan automáticamente (TLAs son TBD en el FIXTURE).
+    """
+    return audit_official_results(db)
 
 
 @router.get("/stats", response_model=AdminStats)

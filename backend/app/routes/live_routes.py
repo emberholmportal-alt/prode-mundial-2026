@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -208,6 +209,119 @@ def sync_state_snapshot() -> dict:
         "remote_finished_count": finished_count,
         "cache_age_seconds": round(age_s, 1) if age_s is not None else None,
         "last_error": last_error,
+    }
+
+
+def audit_official_results(db: Session) -> dict:
+    """Compara cada OfficialResult contra football-data.org para detectar
+    discrepancias entre lo cargado (manual o auto) y lo que muestra la API.
+
+    Solo audita partidos de fase de grupos (los knockouts no tienen TLAs
+    concretos en nuestro FIXTURE hasta que se decidan, así que no podemos
+    matchearlos contra football-data automáticamente).
+    """
+    # Refrescamos si el cache está vencido para tener data lo más nueva posible.
+    with _lock:
+        cached = _cache.get("payload")
+        at = _cache.get("at") or 0.0
+    fresh = cached and (time.monotonic() - at) < _API_TTL
+    if not fresh:
+        cached = _fetch_remote()
+        with _lock:
+            _cache["payload"] = cached
+            _cache["at"] = time.monotonic()
+
+    # Index remoto por par (home_tla, away_tla) — único en fase de grupos
+    remote_by_pair: dict[tuple[str, str], dict] = {}
+    for rm in cached or []:
+        h = (rm.get("home_tla") or "").upper()
+        a = (rm.get("away_tla") or "").upper()
+        if not h or not a:
+            continue
+        remote_by_pair[(h, a)] = rm
+
+    fixture_by_id = {m["id"]: m for m in FIXTURE}
+    all_official = db.scalars(select(OfficialResult)).all()
+    rows: list[dict] = []
+    counts = {
+        "ok": 0,
+        "mismatch": 0,
+        "remote_not_found": 0,
+        "remote_unfinished": 0,
+        "knockout_skipped": 0,
+        "fixture_not_found": 0,
+    }
+
+    for off in all_official:
+        fx = fixture_by_id.get(off.match_id)
+        if fx is None:
+            counts["fixture_not_found"] += 1
+            rows.append({
+                "match_id": off.match_id,
+                "status": "fixture_not_found",
+                "manual_home": off.home_score,
+                "manual_away": off.away_score,
+                "auto_loaded": bool(off.auto_loaded),
+            })
+            continue
+        if fx.get("phase") != "grupos":
+            counts["knockout_skipped"] += 1
+            rows.append({
+                "match_id": off.match_id,
+                "phase": fx.get("phase"),
+                "home_tla": fx["home"], "away_tla": fx["away"],
+                "manual_home": off.home_score,
+                "manual_away": off.away_score,
+                "auto_loaded": bool(off.auto_loaded),
+                "status": "knockout_skipped",
+            })
+            continue
+
+        h_tla = fx["home"].upper()
+        a_tla = fx["away"].upper()
+        rm = remote_by_pair.get((h_tla, a_tla))
+        base = {
+            "match_id": off.match_id,
+            "home_tla": h_tla,
+            "away_tla": a_tla,
+            "kickoff_utc": fx.get("datetime_utc"),
+            "manual_home": off.home_score,
+            "manual_away": off.away_score,
+            "auto_loaded": bool(off.auto_loaded),
+        }
+        if rm is None:
+            counts["remote_not_found"] += 1
+            rows.append({**base, "status": "remote_not_found"})
+            continue
+        rstatus = (rm.get("status") or "").upper()
+        rh, ra = rm.get("home_score"), rm.get("away_score")
+        if rstatus != "FINISHED" or rh is None or ra is None:
+            counts["remote_unfinished"] += 1
+            rows.append({**base, "status": "remote_unfinished", "remote_status": rstatus})
+            continue
+        if int(rh) == int(off.home_score) and int(ra) == int(off.away_score):
+            counts["ok"] += 1
+            rows.append({**base, "status": "ok", "remote_home": int(rh), "remote_away": int(ra)})
+        else:
+            counts["mismatch"] += 1
+            rows.append({
+                **base,
+                "status": "mismatch",
+                "remote_home": int(rh),
+                "remote_away": int(ra),
+            })
+
+    # Ordenar: primero mismatches, después remote_unfinished/not_found, después ok, después knockouts.
+    order = {"mismatch": 0, "remote_unfinished": 1, "remote_not_found": 2, "fixture_not_found": 3, "ok": 4, "knockout_skipped": 5}
+    rows.sort(key=lambda r: (order.get(r["status"], 9), r.get("match_id") or ""))
+
+    return {
+        "token_present": bool(FOOTBALL_DATA_TOKEN),
+        "remote_available": cached is not None,
+        "remote_count": len(cached) if cached else 0,
+        "total_audited": len(rows),
+        "counts": counts,
+        "rows": rows,
     }
 
 
