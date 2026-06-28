@@ -2470,6 +2470,29 @@ async function loadAppData() {
     state.cache.deadlinesUtc = (fixturesData && fixturesData.deadlines_utc) || {};
     state.cache.matchDeadlinesUtc = (fixturesData && fixturesData.match_deadlines_utc) || {};
     state.cache.finalPickDeadlineUtc = fixturesData && fixturesData.final_pick_deadline_utc;
+    // Overlay de asignaciones de cruces eliminatorios (16vos, octavos, etc).
+    // El backend pobla esto automáticamente desde football-data.org cuando
+    // FIFA define los enfrentamientos. Reemplaza los TBD del FIXTURE local
+    // por equipos concretos y actualiza date/time/venue si difieren.
+    const _knAssign = (fixturesData && fixturesData.knockout_assignments) || {};
+    for (const m of FIXTURE) {
+      const a = _knAssign[m.id];
+      if (!a) continue;
+      if (a.home) m.home = a.home;
+      if (a.away) m.away = a.away;
+      if (a.venue) m.venue = a.venue;
+      if (a.datetime_utc) {
+        m.datetime_utc = a.datetime_utc;
+        // Re-derivar date/time en ART (UTC-3) para que la UI los muestre bien
+        try {
+          const d = new Date(a.datetime_utc.replace('Z', '+00:00'));
+          const artMs = d.getTime() - 3 * 60 * 60 * 1000;
+          const art = new Date(artMs);
+          m.date = art.toISOString().slice(0, 10);
+          m.time = art.toISOString().slice(11, 16);
+        } catch (e) { /* ignore */ }
+      }
+    }
 
     const predMap = {};
     (predictions || []).forEach(p => {
