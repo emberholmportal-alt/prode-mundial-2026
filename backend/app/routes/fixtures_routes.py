@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deadlines import all_match_deadlines, final_pick_deadline_utc
-from ..fixtures import FIXTURE, TEAMS
+from ..fixtures import FIXTURE, TEAMS, apply_knockout_overrides
 from ..models import KnockoutMatch
 
 router = APIRouter(tags=["fixtures"])
@@ -12,6 +12,9 @@ router = APIRouter(tags=["fixtures"])
 
 @router.get("/fixtures")
 def list_fixtures(db: Session = Depends(get_db)):
+    # Asegura que FIXTURE_BY_ID en memoria refleje los overrides de eliminatorias
+    # (equipos, kickoff real, sede) antes de calcular deadlines y serializar.
+    apply_knockout_overrides(db)
     fp_dl = final_pick_deadline_utc().isoformat().replace("+00:00", "Z")
     assignments = {
         km.match_id: {
