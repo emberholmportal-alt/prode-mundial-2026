@@ -10,7 +10,7 @@ from ..deadlines import get_match_kickoff_utc
 from ..fixtures import FIXTURE_BY_ID, TEAMS
 from ..limiter import limiter
 from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
-from .live_routes import audit_official_results, force_sync_now, sync_state_snapshot
+from .live_routes import audit_official_results, audit_schedule, force_sync_now, sync_state_snapshot
 from ..schemas import (
     AdminStats,
     OfficialFinalIn,
@@ -176,6 +176,18 @@ def results_audit(request: Request, db: Session = Depends(get_db)):
     Knockouts no se auditan automáticamente (TLAs son TBD en el FIXTURE).
     """
     return audit_official_results(db)
+
+
+@router.get("/schedule-audit")
+@limiter.limit("10/minute")
+def schedule_audit(request: Request, db: Session = Depends(get_db)):
+    """Compara la fecha/hora de cada partido del FIXTURE contra football-data.
+
+    Útil para verificar que no haya errores de carga ni reprogramaciones
+    de FIFA que no captamos. Status por partido: ok / kickoff_diff /
+    swapped_teams / remote_not_found / tbd_skipped.
+    """
+    return audit_schedule(db)
 
 
 @router.get("/stats", response_model=AdminStats)

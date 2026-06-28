@@ -212,6 +212,120 @@ def sync_state_snapshot() -> dict:
     }
 
 
+def audit_schedule(db: Session) -> dict:
+    """Compara la fecha/hora de cada partido del FIXTURE contra football-data.
+
+    Útil para verificar que no haya errores de carga ni reprogramaciones
+    que no captamos. Para knockouts cuyas TLAs siguen siendo 'TBD' se
+    omite la comparación (no se pueden lookupear).
+    """
+    # Refrescar cache si vencido
+    with _lock:
+        cached = _cache.get("payload")
+        at = _cache.get("at") or 0.0
+    fresh = cached and (time.monotonic() - at) < _API_TTL
+    if not fresh:
+        cached = _fetch_remote()
+        with _lock:
+            _cache["payload"] = cached
+            _cache["at"] = time.monotonic()
+
+    # Index remoto por par (home_tla, away_tla); guardamos también el orden
+    # invertido para detectar swaps de local/visitante.
+    remote_by_pair: dict[tuple[str, str], dict] = {}
+    for rm in cached or []:
+        h = (rm.get("home_tla") or "").upper()
+        a = (rm.get("away_tla") or "").upper()
+        if not h or not a:
+            continue
+        remote_by_pair[(h, a)] = rm
+
+    rows: list[dict] = []
+    counts = {
+        "ok": 0,
+        "kickoff_diff": 0,
+        "swapped_teams": 0,
+        "remote_not_found": 0,
+        "tbd_skipped": 0,
+    }
+
+    for m in FIXTURE:
+        h = (m.get("home") or "").upper()
+        a = (m.get("away") or "").upper()
+        base = {
+            "match_id": m["id"],
+            "phase": m.get("phase"),
+            "home_tla": h,
+            "away_tla": a,
+            "kickoff_utc_local": m.get("datetime_utc"),
+            "venue": m.get("venue"),
+        }
+        if h == "TBD" or a == "TBD":
+            counts["tbd_skipped"] += 1
+            rows.append({**base, "status": "tbd_skipped"})
+            continue
+
+        rm = remote_by_pair.get((h, a))
+        swapped = False
+        if rm is None:
+            rm_swap = remote_by_pair.get((a, h))
+            if rm_swap is not None:
+                rm = rm_swap
+                swapped = True
+        if rm is None:
+            counts["remote_not_found"] += 1
+            rows.append({**base, "status": "remote_not_found"})
+            continue
+
+        remote_kickoff = rm.get("utc_kickoff")
+        diff_min: Optional[int] = None
+        if remote_kickoff and m.get("datetime_utc"):
+            try:
+                ours = datetime.fromisoformat(m["datetime_utc"].replace("Z", "+00:00"))
+                theirs = datetime.fromisoformat(remote_kickoff.replace("Z", "+00:00"))
+                diff_min = int((theirs - ours).total_seconds() / 60)
+            except Exception:
+                diff_min = None
+
+        if swapped:
+            counts["swapped_teams"] += 1
+            rows.append({
+                **base,
+                "status": "swapped_teams",
+                "kickoff_utc_remote": remote_kickoff,
+                "diff_minutes": diff_min,
+                "remote_home_tla": (rm.get("home_tla") or "").upper(),
+                "remote_away_tla": (rm.get("away_tla") or "").upper(),
+            })
+        elif diff_min is None or diff_min == 0:
+            counts["ok"] += 1
+            rows.append({
+                **base,
+                "status": "ok",
+                "kickoff_utc_remote": remote_kickoff,
+            })
+        else:
+            counts["kickoff_diff"] += 1
+            rows.append({
+                **base,
+                "status": "kickoff_diff",
+                "kickoff_utc_remote": remote_kickoff,
+                "diff_minutes": diff_min,
+            })
+
+    order = {"kickoff_diff": 0, "swapped_teams": 1, "remote_not_found": 2, "ok": 3, "tbd_skipped": 4}
+    rows.sort(key=lambda r: (order.get(r["status"], 9), r.get("match_id") or ""))
+
+    return {
+        "token_present": bool(FOOTBALL_DATA_TOKEN),
+        "remote_available": cached is not None,
+        "remote_count": len(cached) if cached else 0,
+        "total_audited": len(rows),
+        "counts": counts,
+        "rows": rows,
+    }
+
+
 def audit_official_results(db: Session) -> dict:
     """Compara cada OfficialResult contra football-data.org para detectar
     discrepancias entre lo cargado (manual o auto) y lo que muestra la API.
