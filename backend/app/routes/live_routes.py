@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..fixtures import FIXTURE
 from ..limiter import limiter
-from ..models import OfficialResult
+from ..models import KnockoutMatch, OfficialResult
 
 router = APIRouter(tags=["live"])
 
@@ -65,6 +65,7 @@ def _fetch_remote() -> Optional[list[dict]]:
             "remote_id": m.get("id"),
             "utc_kickoff": m.get("utcDate"),
             "status": status,
+            "stage": (m.get("stage") or "").upper(),
             "home_name": home.get("name"),
             "home_tla": home.get("tla"),
             "away_name": away.get("name"),
@@ -72,6 +73,7 @@ def _fetch_remote() -> Optional[list[dict]]:
             "home_score": score.get("home"),
             "away_score": score.get("away"),
             "minute": m.get("minute"),
+            "venue": m.get("venue"),
         })
     return matches
 
@@ -179,6 +181,7 @@ def force_sync_now(db: Session) -> dict:
         _cache["error"] = None
     remote = _fetch_remote()
     diag = _sync_with_diagnostics(db, remote or [])
+    knockouts_assigned = auto_assign_knockouts(db, remote or [])
     with _lock:
         _cache["payload"] = remote
         _cache["at"] = time.monotonic()
@@ -188,6 +191,7 @@ def force_sync_now(db: Session) -> dict:
         "remote_available": remote is not None,
         "remote_count": len(remote) if remote else 0,
         "last_error": last_error,
+        "knockouts_assigned_or_updated": knockouts_assigned,
         **diag,
     }
 
@@ -210,6 +214,116 @@ def sync_state_snapshot() -> dict:
         "cache_age_seconds": round(age_s, 1) if age_s is not None else None,
         "last_error": last_error,
     }
+
+
+STAGE_TO_PHASE = {
+    "ROUND_OF_32": "dieciseisavos",
+    "LAST_32": "dieciseisavos",
+    "ROUND_OF_16": "octavos",
+    "LAST_16": "octavos",
+    "QUARTER_FINALS": "cuartos",
+    "QUARTER_FINAL": "cuartos",
+    "SEMI_FINALS": "semis",
+    "SEMI_FINAL": "semis",
+    "THIRD_PLACE": "tercerpuesto",
+    "3RD_PLACE": "tercerpuesto",
+    "PLAY_OFF_FOR_THIRD_PLACE": "tercerpuesto",
+    "FINAL": "final",
+}
+
+
+def auto_assign_knockouts(db: Session, remote_matches: Optional[list[dict]]) -> int:
+    """Detecta partidos no-grupo en football-data.org con equipos concretos
+    y los mapea a nuestros slots K1..K30 del FIXTURE.
+
+    Estrategia: para cada fase (dieciseisavos, octavos, etc), ordenamos
+    los partidos remotos de esa fase por kickoff y los pareamos con
+    nuestros slots de la misma fase también ordenados por kickoff.
+
+    - Si la fila en DB ya existe con source='manual', NO se sobreescribe.
+    - Si existe con source='auto' y los datos remotos cambiaron, se actualiza.
+    - Si no existe, se inserta.
+    - Devuelve el número de filas afectadas (insertadas o actualizadas).
+    """
+    if not remote_matches:
+        return 0
+
+    # Slots nuestros por fase, ordenados cronológicamente
+    our_by_phase: dict[str, list[dict]] = {}
+    for m in FIXTURE:
+        ph = m.get("phase")
+        if ph == "grupos":
+            continue
+        our_by_phase.setdefault(ph, []).append(m)
+    for ph in our_by_phase:
+        our_by_phase[ph].sort(key=lambda x: x.get("datetime_utc") or "")
+
+    # Partidos remotos no-grupo con equipos concretos, agrupados por fase
+    remote_by_phase: dict[str, list[dict]] = {}
+    for rm in remote_matches:
+        stage_raw = (rm.get("stage") or "").upper().replace("-", "_").replace(" ", "_")
+        phase = STAGE_TO_PHASE.get(stage_raw)
+        if not phase:
+            continue
+        h = (rm.get("home_tla") or "").upper()
+        a = (rm.get("away_tla") or "").upper()
+        if not h or not a or h == "TBD" or a == "TBD":
+            continue
+        remote_by_phase.setdefault(phase, []).append(rm)
+    for ph in remote_by_phase:
+        remote_by_phase[ph].sort(key=lambda r: r.get("utc_kickoff") or "")
+
+    affected = 0
+    try:
+        for phase, our_slots in our_by_phase.items():
+            remotes = remote_by_phase.get(phase, [])
+            for i, our in enumerate(our_slots):
+                if i >= len(remotes):
+                    break
+                rm = remotes[i]
+                h = (rm.get("home_tla") or "").upper()
+                a = (rm.get("away_tla") or "").upper()
+                kickoff = rm.get("utc_kickoff")
+                if not kickoff:
+                    continue
+                venue = None
+                v = rm.get("venue")
+                if isinstance(v, dict):
+                    venue = v.get("name")
+                elif isinstance(v, str):
+                    venue = v
+                existing = db.get(KnockoutMatch, our["id"])
+                if existing is None:
+                    db.add(KnockoutMatch(
+                        match_id=our["id"],
+                        home_tla=h,
+                        away_tla=a,
+                        datetime_utc=kickoff,
+                        venue=venue,
+                        source="auto",
+                    ))
+                    affected += 1
+                elif existing.source == "auto":
+                    changed = (
+                        existing.home_tla != h
+                        or existing.away_tla != a
+                        or existing.datetime_utc != kickoff
+                        or (venue and existing.venue != venue)
+                    )
+                    if changed:
+                        existing.home_tla = h
+                        existing.away_tla = a
+                        existing.datetime_utc = kickoff
+                        if venue:
+                            existing.venue = venue
+                        affected += 1
+                # Si source='manual', no se toca
+        if affected > 0:
+            db.commit()
+    except Exception:
+        db.rollback()
+        return 0
+    return affected
 
 
 def audit_schedule(db: Session) -> dict:
@@ -473,8 +587,10 @@ def live_status(request: Request, db: Session = Depends(get_db)):
             _cache["payload"] = remote_matches
             _cache["at"] = time.monotonic()
         # Auto-sync de partidos FINISHED → official_results (no pisa manuales)
+        # + auto-asignación de equipos para los slots K1..K30 de fases eliminatorias
         if remote_matches:
             _sync_finished_results(db, remote_matches)
+            auto_assign_knockouts(db, remote_matches)
     else:
         remote_matches = cached
 

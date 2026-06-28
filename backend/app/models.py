@@ -146,6 +146,32 @@ class OfficialFinal(Base):
     )
 
 
+class KnockoutMatch(Base):
+    """Asignación de equipos para un slot de fase eliminatoria (K1..K30).
+
+    Se popula automáticamente desde football-data.org cuando FIFA define
+    los cruces, sobreescribiendo la entrada del FIXTURE (que arranca como
+    'TBD vs TBD'). El admin puede editar manualmente seteando source='manual'
+    y en ese caso el auto-sync no la pisa.
+    """
+    __tablename__ = "knockout_matches"
+
+    match_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    home_tla: Mapped[str] = mapped_column(String(3), nullable=False)
+    away_tla: Mapped[str] = mapped_column(String(3), nullable=False)
+    datetime_utc: Mapped[str] = mapped_column(String(40), nullable=False)
+    venue: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="auto", server_default="auto"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (
