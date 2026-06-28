@@ -3500,6 +3500,7 @@ function renderAdmin() {
       <button class="btn-save" id="btnSyncDebug" style="background:rgba(255,255,255,0.08);">🔍 Diagnosticar sync</button>
       <button class="btn-save" id="btnSyncNow">⚡ Forzar sync ahora</button>
       <button class="btn-save" id="btnResultsAudit" style="background:rgba(255,182,76,0.18);border:1px solid rgba(255,182,76,0.55);">🔎 Auditar resultados cargados</button>
+      <button class="btn-save" id="btnScheduleAudit" style="background:rgba(120,180,255,0.18);border:1px solid rgba(120,180,255,0.55);">🕐 Verificar horarios</button>
     </div>
     <pre id="syncOutput" style="display:none;margin-top:10px;padding:10px;background:rgba(0,0,0,0.4);border-radius:8px;font-size:11px;color:#d6e394;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;"></pre>
   </div>
@@ -3834,6 +3835,104 @@ function bindContent() {
       if (reset) reset();
     }
   };
+
+  const btnScheduleAudit = document.getElementById('btnScheduleAudit');
+  if (btnScheduleAudit) btnScheduleAudit.onclick = async () => {
+    if (!syncOut) return;
+    const reset = setButtonBusy(btnScheduleAudit.id, 'Verificando…');
+    syncOut.style.display = 'block';
+    syncOut.textContent = 'Comparando horarios contra football-data.org…';
+    try {
+      const data = await apiFetch('/api/admin/schedule-audit', { method: 'GET' });
+      syncOut.innerHTML = _renderScheduleAudit(data);
+      const c = data.counts || {};
+      const problems = (c.kickoff_diff || 0) + (c.swapped_teams || 0) + (c.remote_not_found || 0);
+      const msg = `Auditados: ${data.total_audited || 0} · ok: ${c.ok || 0} · problemas: ${problems} · TBD: ${c.tbd_skipped || 0}`;
+      showToast(msg, problems > 0 ? 'error' : 'success');
+    } catch (e) {
+      syncOut.textContent = 'Error: ' + (e.message || e);
+      showToast('No se pudo verificar horarios', 'error');
+    } finally {
+      if (reset) reset();
+    }
+  };
+}
+
+function _renderScheduleAudit(data) {
+  const rows = data.rows || [];
+  const c = data.counts || {};
+  const _esc = (s) => String(s == null ? '' : s).replace(/[<>&]/g, ch => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[ch]));
+  const teamName = (tla) => (typeof TEAMS !== 'undefined' && TEAMS[tla] && TEAMS[tla].name) || tla || '?';
+  const fmtArt = (iso) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso.replace('Z', '+00:00'));
+      return d.toLocaleString('es-AR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', timeZone:'America/Argentina/Buenos_Aires' });
+    } catch (e) { return iso; }
+  };
+  const statusLabel = {
+    ok: '✅ OK',
+    kickoff_diff: '❌ HORARIO DIFERENTE',
+    swapped_teams: '🔁 LOCAL/VISITANTE INVERTIDOS',
+    remote_not_found: '❓ No encontrado en API',
+    tbd_skipped: '🔒 TBD (sin definir)',
+  };
+  const statusColor = {
+    ok: '#7bd97b',
+    kickoff_diff: '#ff6b6b',
+    swapped_teams: '#ffd178',
+    remote_not_found: '#ffaa70',
+    tbd_skipped: 'rgba(255,255,255,0.4)',
+  };
+  const header = `<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:#fff;margin-bottom:8px;">
+    <span>Total: <strong>${data.total_audited || 0}</strong></span>
+    <span style="color:#7bd97b;">✅ ok: <strong>${c.ok || 0}</strong></span>
+    <span style="color:#ff6b6b;">❌ horario distinto: <strong>${c.kickoff_diff || 0}</strong></span>
+    <span style="color:#ffd178;">🔁 invertidos: <strong>${c.swapped_teams || 0}</strong></span>
+    <span style="color:#ffaa70;">❓ no en API: <strong>${c.remote_not_found || 0}</strong></span>
+    <span style="color:rgba(255,255,255,0.5);">🔒 TBD: <strong>${c.tbd_skipped || 0}</strong></span>
+  </div>`;
+  if (!data.remote_available) {
+    return header + `<div style="color:#ffaa70;font-size:12px;">⚠️ No se pudo conectar con football-data.org. Revisá el token y/o el último error en "Diagnosticar sync".</div>`;
+  }
+  // Filtramos los TBD para no inundar la tabla (los contamos en el header)
+  const visibleRows = rows.filter(r => r.status !== 'tbd_skipped');
+  const table = `<div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;font-size:11.5px;color:#fff;">
+    <thead>
+      <tr style="background:rgba(255,255,255,0.06);">
+        <th style="text-align:left;padding:6px 8px;">match_id</th>
+        <th style="text-align:left;padding:6px 8px;">Fase</th>
+        <th style="text-align:left;padding:6px 8px;">Partido (nuestro)</th>
+        <th style="text-align:left;padding:6px 8px;">Kickoff nuestro (ART)</th>
+        <th style="text-align:left;padding:6px 8px;">Kickoff API (ART)</th>
+        <th style="text-align:center;padding:6px 8px;">Δ min</th>
+        <th style="text-align:left;padding:6px 8px;">Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+    ${visibleRows.map(r => {
+      const partido = (r.home_tla && r.away_tla) ? `${_esc(teamName(r.home_tla))} vs ${_esc(teamName(r.away_tla))}` : '—';
+      const ourKo = fmtArt(r.kickoff_utc_local);
+      const apiKo = r.kickoff_utc_remote ? fmtArt(r.kickoff_utc_remote) : '—';
+      const delta = (r.diff_minutes != null) ? (r.diff_minutes > 0 ? '+' : '') + r.diff_minutes : '';
+      const deltaColor = (r.diff_minutes != null && r.diff_minutes !== 0) ? '#ffb6b6' : 'rgba(255,255,255,0.5)';
+      const extra = (r.status === 'swapped_teams' && r.remote_home_tla)
+        ? `<div style="font-size:10px;opacity:0.7;">API: ${_esc(teamName(r.remote_home_tla))} vs ${_esc(teamName(r.remote_away_tla))}</div>`
+        : '';
+      return `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
+        <td style="padding:5px 8px;font-family:monospace;opacity:0.7;">${_esc(r.match_id)}</td>
+        <td style="padding:5px 8px;font-size:10px;opacity:0.75;">${_esc(r.phase || '—')}</td>
+        <td style="padding:5px 8px;">${partido}${extra}</td>
+        <td style="padding:5px 8px;">${ourKo}</td>
+        <td style="padding:5px 8px;">${apiKo}</td>
+        <td style="padding:5px 8px;text-align:center;font-weight:800;color:${deltaColor};">${delta}</td>
+        <td style="padding:5px 8px;color:${statusColor[r.status] || '#fff'};">${statusLabel[r.status] || r.status}</td>
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table></div>
+  ${c.tbd_skipped > 0 ? `<div style="margin-top:8px;font-size:11px;opacity:0.6;">Se omitieron ${c.tbd_skipped} partidos con TBD (knockouts sin equipos definidos todavía).</div>` : ''}`;
+  return header + table;
 }
 
 function _renderResultsAudit(data) {
