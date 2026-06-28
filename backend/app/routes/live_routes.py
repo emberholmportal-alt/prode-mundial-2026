@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..fixtures import FIXTURE
+from ..fixtures import FIXTURE, apply_knockout_overrides
 from ..limiter import limiter
 from ..models import KnockoutMatch, OfficialResult
 
@@ -320,6 +320,9 @@ def auto_assign_knockouts(db: Session, remote_matches: Optional[list[dict]]) -> 
                 # Si source='manual', no se toca
         if affected > 0:
             db.commit()
+            # Aplicar inmediatamente sobre FIXTURE_BY_ID en memoria, así
+            # match_deadline_utc / is_match_locked usan el kickoff real al toque.
+            apply_knockout_overrides(db)
     except Exception:
         db.rollback()
         return 0

@@ -68,6 +68,20 @@ def _promote_admins_on_startup() -> None:
     finally:
         db.close()
 
+
+@app.on_event("startup")
+def _apply_knockout_overrides_on_startup() -> None:
+    """En boot, aplica las asignaciones de knockout_matches sobre FIXTURE_BY_ID
+    en memoria. Sin esto, después de un restart los slots K vuelven a sus
+    valores tentativos hasta que pase la primera pasada del sync — y mientras
+    tanto los deadlines se calculan con kickoff erróneo."""
+    from .fixtures import apply_knockout_overrides
+    db = SessionLocal()
+    try:
+        apply_knockout_overrides(db)
+    finally:
+        db.close()
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)

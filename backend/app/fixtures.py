@@ -272,3 +272,44 @@ FIXTURE_BY_ID: dict[str, Match] = {m["id"]: m for m in FIXTURE}
 
 def get_match(match_id: str) -> Optional[Match]:
     return FIXTURE_BY_ID.get(match_id)
+
+
+def apply_knockout_overrides(db) -> int:
+    """Aplica las asignaciones de la tabla knockout_matches sobre FIXTURE/FIXTURE_BY_ID
+    en memoria. Reemplaza home, away, datetime_utc, datetime_art y venue de cada
+    slot K que tenga override en DB.
+
+    Esto es CLAVE para que match_deadline_utc / is_match_locked usen el kickoff
+    real (no el tentativo del slot original), de modo que los usuarios puedan
+    cargar/modificar pronósticos de eliminatorias hasta 1h antes del kickoff real.
+
+    Devuelve la cantidad de slots actualizados.
+    """
+    # late import para evitar ciclos
+    from sqlalchemy import select as _select
+
+    from .models import KnockoutMatch
+
+    updated = 0
+    try:
+        for km in db.scalars(_select(KnockoutMatch)).all():
+            m = FIXTURE_BY_ID.get(km.match_id)
+            if m is None:
+                continue
+            m["home"] = km.home_tla
+            m["away"] = km.away_tla
+            if km.datetime_utc:
+                m["datetime_utc"] = km.datetime_utc
+                try:
+                    d = datetime.fromisoformat(km.datetime_utc.replace("Z", "+00:00"))
+                    art = d.astimezone(timezone(timedelta(hours=-3))).replace(tzinfo=None)
+                    m["datetime_art"] = art.isoformat()
+                except Exception:
+                    pass
+            if km.venue:
+                m["venue"] = km.venue
+            updated += 1
+    except Exception:
+        # No bloqueamos el flujo si la tabla no existe todavía (migración pendiente, etc.)
+        return 0
+    return updated
