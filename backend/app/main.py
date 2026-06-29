@@ -82,6 +82,20 @@ def _apply_knockout_overrides_on_startup() -> None:
     finally:
         db.close()
 
+
+@app.on_event("startup")
+def _start_background_sync_on_startup() -> None:
+    """Arranca el scheduler que sincroniza resultados/cruces periódicamente,
+    sin depender de que haya usuarios con la app abierta."""
+    from .routes.live_routes import start_background_sync
+    start_background_sync()
+
+
+@app.on_event("shutdown")
+def _stop_background_sync_on_shutdown() -> None:
+    from .routes.live_routes import stop_background_sync
+    stop_background_sync()
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
