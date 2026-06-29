@@ -56,8 +56,12 @@ class AuthOut(BaseModel):
 
 
 class PredictionIn(BaseModel):
+    # home_score / away_score corresponden a 90' + alargue (sin penales).
     home_score: int = Field(ge=0, le=20)
     away_score: int = Field(ge=0, le=20)
+    # Solo para knockouts con empate después de 90'+ET. Es el TLA del
+    # equipo que el usuario cree que pasa por penales.
+    penalty_winner: Optional[str] = Field(default=None, min_length=3, max_length=3)
 
 
 class PredictionOut(BaseModel):
@@ -66,6 +70,7 @@ class PredictionOut(BaseModel):
     match_id: str
     home_score: int
     away_score: int
+    penalty_winner: Optional[str] = None
     updated_at: datetime
 
 
@@ -83,8 +88,11 @@ class FinalPickOut(BaseModel):
 
 
 class OfficialResultIn(BaseModel):
+    # Marcador después de 90' + alargue (sin contar penales).
     home_score: int = Field(ge=0, le=20)
     away_score: int = Field(ge=0, le=20)
+    # TLA del equipo que ganó por penales (solo aplica si quedó empatado).
+    penalty_winner: Optional[str] = Field(default=None, min_length=3, max_length=3)
 
 
 class OfficialResultOut(BaseModel):
@@ -93,6 +101,7 @@ class OfficialResultOut(BaseModel):
     match_id: str
     home_score: int
     away_score: int
+    penalty_winner: Optional[str] = None
     auto_loaded: bool = False
     updated_at: datetime
 

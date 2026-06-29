@@ -42,18 +42,46 @@ def upsert_official_result(
             detail="No podés cargar resultado de un partido que no se jugó todavía",
         )
 
+    fx = FIXTURE_BY_ID[match_id]
+    is_knockout = fx.get("phase") != "grupos"
+    pw = (payload.penalty_winner or "").upper() or None
+
+    if pw is not None:
+        if not is_knockout:
+            raise HTTPException(
+                status_code=400,
+                detail="penalty_winner solo aplica para partidos de eliminación",
+            )
+        if payload.home_score != payload.away_score:
+            pw = None
+        else:
+            valid = {(fx.get("home") or "").upper(), (fx.get("away") or "").upper()}
+            if pw not in valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"penalty_winner debe ser uno de los equipos del partido: {sorted(valid)}",
+                )
+
+    if is_knockout and payload.home_score == payload.away_score and pw is None:
+        raise HTTPException(
+            status_code=400,
+            detail="En eliminatorias con empate tenés que cargar quién pasó por penales",
+        )
+
     existing = db.get(OfficialResult, match_id)
     if existing is None:
         existing = OfficialResult(
             match_id=match_id,
             home_score=payload.home_score,
             away_score=payload.away_score,
+            penalty_winner=pw,
             auto_loaded=False,
         )
         db.add(existing)
     else:
         existing.home_score = payload.home_score
         existing.away_score = payload.away_score
+        existing.penalty_winner = pw
         # Si lo edita el admin manualmente, deja de ser "auto"
         existing.auto_loaded = False
 

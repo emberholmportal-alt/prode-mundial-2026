@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from ..auth import get_current_user
 from ..database import get_db
 from ..deadlines import ensure_match_open
+from ..fixtures import FIXTURE_BY_ID
 from ..limiter import limiter
 from ..models import FinalPick, Prediction, User
 from ..schemas import PredictionIn, PredictionOut
@@ -43,6 +44,34 @@ def upsert_prediction(
 
     ensure_match_open(match_id)
 
+    match = FIXTURE_BY_ID.get(match_id)
+    is_knockout = match is not None and match.get("phase") != "grupos"
+    pw = (payload.penalty_winner or "").upper() or None
+
+    # Validación de penalty_winner: solo aplica para knockouts con empate.
+    if pw is not None:
+        if not is_knockout:
+            raise HTTPException(
+                status_code=400,
+                detail="penalty_winner solo aplica para partidos de eliminación",
+            )
+        if payload.home_score != payload.away_score:
+            # Si la predicción no es empate, ignoramos penalty_winner silenciosamente.
+            pw = None
+        else:
+            valid = {(match.get("home") or "").upper(), (match.get("away") or "").upper()}
+            if pw not in valid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"penalty_winner debe ser uno de los equipos del partido: {sorted(valid)}",
+                )
+
+    if is_knockout and payload.home_score == payload.away_score and pw is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Para predicciones de empate en eliminación tenés que elegir quién pasa por penales",
+        )
+
     existing = db.scalar(
         select(Prediction).where(
             Prediction.user_id == user.id,
@@ -55,11 +84,13 @@ def upsert_prediction(
             match_id=match_id,
             home_score=payload.home_score,
             away_score=payload.away_score,
+            penalty_winner=pw,
         )
         db.add(existing)
     else:
         existing.home_score = payload.home_score
         existing.away_score = payload.away_score
+        existing.penalty_winner = pw
 
     db.commit()
     db.refresh(existing)
