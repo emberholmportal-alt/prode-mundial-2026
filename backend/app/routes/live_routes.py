@@ -235,6 +235,88 @@ def force_sync_now(db: Session) -> dict:
     }
 
 
+# =====================================================================
+# BACKGROUND SCHEDULER — corre el sync periódicamente sin depender de que
+# haya usuarios con la app abierta. Clave para que los resultados se carguen
+# aunque un partido termine de madrugada con nadie conectado.
+# =====================================================================
+_BG_INTERVAL_SECONDS = int(os.environ.get("SYNC_INTERVAL_SECONDS", "180"))
+_bg_thread: Optional[threading.Thread] = None
+_bg_stop = threading.Event()
+_bg_last_run: dict[str, Any] = {"at": None, "result": None, "error": None}
+
+
+def _bg_run_once() -> None:
+    """Una pasada del sync en background. Usa su propia sesión de DB."""
+    from ..database import SessionLocal
+    db = SessionLocal()
+    try:
+        remote = _fetch_remote()
+        if remote is None:
+            _bg_last_run["error"] = _cache.get("error") or "fetch falló"
+        else:
+            with _lock:
+                _cache["payload"] = remote
+                _cache["at"] = time.monotonic()
+            diag = _sync_with_diagnostics(db, remote)
+            assigned = auto_assign_knockouts(db, remote)
+            _bg_last_run["error"] = None
+            _bg_last_run["result"] = {
+                "synced": diag.get("synced", 0),
+                "knockouts_assigned": assigned,
+                "finished_total": diag.get("finished_total", 0),
+            }
+    except Exception as e:  # noqa: BLE001
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        _bg_last_run["error"] = str(e)
+    finally:
+        db.close()
+
+
+def _bg_loop() -> None:
+    # Pequeño delay inicial para no chocar con el arranque de la app.
+    if _bg_stop.wait(10):
+        return
+    while not _bg_stop.is_set():
+        _bg_run_once()
+        import time as _t
+        # Marcamos el último run con timestamp UTC legible (no usamos monotonic acá).
+        _bg_last_run["at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        if _bg_stop.wait(_BG_INTERVAL_SECONDS):
+            break
+
+
+def start_background_sync() -> bool:
+    """Arranca el hilo del scheduler si hay token configurado. Idempotente."""
+    global _bg_thread
+    if not FOOTBALL_DATA_TOKEN:
+        return False
+    if _bg_thread is not None and _bg_thread.is_alive():
+        return True
+    _bg_stop.clear()
+    _bg_thread = threading.Thread(target=_bg_loop, name="prode-sync", daemon=True)
+    _bg_thread.start()
+    return True
+
+
+def stop_background_sync() -> None:
+    _bg_stop.set()
+
+
+def background_sync_status() -> dict:
+    return {
+        "enabled": bool(FOOTBALL_DATA_TOKEN),
+        "running": bool(_bg_thread is not None and _bg_thread.is_alive()),
+        "interval_seconds": _BG_INTERVAL_SECONDS,
+        "last_run_at": _bg_last_run.get("at"),
+        "last_run_result": _bg_last_run.get("result"),
+        "last_run_error": _bg_last_run.get("error"),
+    }
+
+
 def sync_state_snapshot() -> dict:
     """Snapshot del estado actual sin forzar fetch (usa cache vigente)."""
     with _lock:

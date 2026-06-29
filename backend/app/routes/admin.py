@@ -10,7 +10,13 @@ from ..deadlines import get_match_kickoff_utc
 from ..fixtures import FIXTURE_BY_ID, TEAMS
 from ..limiter import limiter
 from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
-from .live_routes import audit_official_results, audit_schedule, force_sync_now, sync_state_snapshot
+from .live_routes import (
+    audit_official_results,
+    audit_schedule,
+    background_sync_status,
+    force_sync_now,
+    sync_state_snapshot,
+)
 from ..schemas import (
     AdminStats,
     OfficialFinalIn,
@@ -178,6 +184,7 @@ def sync_debug(request: Request, db: Session = Depends(get_db)):
         **snap,
         "official_results_auto_loaded": int(loaded_auto),
         "official_results_manual": int(loaded_manual),
+        "background_scheduler": background_sync_status(),
     }
 
 
