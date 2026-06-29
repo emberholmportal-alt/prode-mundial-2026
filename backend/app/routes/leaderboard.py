@@ -3,11 +3,12 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deadlines import get_match_kickoff_utc
+from ..fixtures import FIXTURE_BY_ID, apply_knockout_overrides
 from ..limiter import limiter
 from ..models import CITIES, COMPANIES, FinalPick, OfficialFinal, OfficialResult, Prediction, User
 from ..scoring import calc_final_points
@@ -20,93 +21,92 @@ _cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()
 
 
+def _passer_tla(home_tla: Optional[str], away_tla: Optional[str],
+                h: int, a: int, pen_winner: Optional[str]) -> Optional[str]:
+    """Devuelve el TLA del equipo que pasa de fase. None si no se puede determinar."""
+    if h > a:
+        return (home_tla or "").upper() or None
+    if a > h:
+        return (away_tla or "").upper() or None
+    if pen_winner:
+        return pen_winner.upper()
+    return None
+
+
+def _calc_match_points(pred, off, fixture_match) -> tuple[int, bool, bool]:
+    """Devuelve (puntos, is_exact, is_result_or_passer) para un partido.
+
+    Grupos:
+      3 pts: exact h-a
+      1 pt:  ganador o empate correcto
+      0 pts: else
+    Eliminatorias (90' + alargue):
+      3 pts: marcador exacto Y, si fue empate, predijo bien quién pasa por penales
+      1 pt:  predijo correctamente quién pasa de fase (sin marcador exacto)
+      0 pts: else
+    """
+    is_knockout = fixture_match.get("phase") != "grupos"
+    h_pred, a_pred = pred.home_score, pred.away_score
+    h_off, a_off = off.home_score, off.away_score
+
+    if is_knockout:
+        home_tla = (fixture_match.get("home") or "").upper()
+        away_tla = (fixture_match.get("away") or "").upper()
+        pw_pred = (pred.penalty_winner or "").upper() or None
+        pw_off = (off.penalty_winner or "").upper() or None
+        is_exact = (h_pred == h_off and a_pred == a_off)
+        if is_exact and h_pred == a_pred:
+            # Empate exacto: requiere también acertar penalty_winner
+            is_exact = (pw_pred is not None and pw_off is not None and pw_pred == pw_off)
+        passer_pred = _passer_tla(home_tla, away_tla, h_pred, a_pred, pw_pred)
+        passer_off = _passer_tla(home_tla, away_tla, h_off, a_off, pw_off)
+        is_passer = (passer_pred is not None and passer_off is not None and passer_pred == passer_off)
+        if is_exact:
+            return (3, True, True)
+        if is_passer:
+            return (1, False, True)
+        return (0, False, False)
+
+    # Grupos
+    is_exact = (h_pred == h_off and a_pred == a_off)
+    is_result = (
+        (h_pred > a_pred and h_off > a_off)
+        or (h_pred < a_pred and h_off < a_off)
+        or (h_pred == a_pred and h_off == a_off)
+    )
+    if is_exact:
+        return (3, True, True)
+    if is_result:
+        return (1, False, True)
+    return (0, False, False)
+
+
 def _compute_leaderboard(db: Session, company: Optional[str], city: Optional[str]) -> list[dict]:
-    exact_case = case(
-        (
-            and_(
-                Prediction.home_score == OfficialResult.home_score,
-                Prediction.away_score == OfficialResult.away_score,
-            ),
-            1,
-        ),
-        else_=0,
-    )
+    # Aseguramos que los overrides de knockouts estén aplicados en memoria, así
+    # _calc_match_points usa home_tla/away_tla correctos para los slots K.
+    apply_knockout_overrides(db)
 
-    result_case = case(
-        (
-            and_(
-                Prediction.home_score > Prediction.away_score,
-                OfficialResult.home_score > OfficialResult.away_score,
-            ),
-            1,
-        ),
-        (
-            and_(
-                Prediction.home_score < Prediction.away_score,
-                OfficialResult.home_score < OfficialResult.away_score,
-            ),
-            1,
-        ),
-        (
-            and_(
-                Prediction.home_score == Prediction.away_score,
-                OfficialResult.home_score == OfficialResult.away_score,
-            ),
-            1,
-        ),
-        else_=0,
-    )
+    # Scoring en Python (más simple que CASE WHEN complejo en SQL).
+    officials = {o.match_id: o for o in db.scalars(select(OfficialResult)).all()}
+    all_preds = db.scalars(select(Prediction)).all()
 
-    points_case = case(
-        (
-            and_(
-                Prediction.home_score == OfficialResult.home_score,
-                Prediction.away_score == OfficialResult.away_score,
-            ),
-            3,
-        ),
-        (
-            and_(
-                Prediction.home_score > Prediction.away_score,
-                OfficialResult.home_score > OfficialResult.away_score,
-            ),
-            1,
-        ),
-        (
-            and_(
-                Prediction.home_score < Prediction.away_score,
-                OfficialResult.home_score < OfficialResult.away_score,
-            ),
-            1,
-        ),
-        (
-            and_(
-                Prediction.home_score == Prediction.away_score,
-                OfficialResult.home_score == OfficialResult.away_score,
-            ),
-            1,
-        ),
-        else_=0,
-    )
-
-    scored_stmt = (
-        select(
-            Prediction.user_id.label("user_id"),
-            func.coalesce(func.sum(points_case), 0).label("points"),
-            func.coalesce(func.sum(exact_case), 0).label("correct_exact"),
-            func.coalesce(func.sum(result_case), 0).label("correct_result"),
+    scored_by_user: dict[int, dict] = {}
+    for p in all_preds:
+        off = officials.get(p.match_id)
+        if off is None:
+            continue
+        fx = FIXTURE_BY_ID.get(p.match_id)
+        if fx is None:
+            continue
+        pts, is_exact, is_result = _calc_match_points(p, off, fx)
+        s = scored_by_user.setdefault(
+            p.user_id, {"points": 0, "correct_exact": 0, "correct_result": 0}
         )
-        .join(OfficialResult, OfficialResult.match_id == Prediction.match_id)
-        .group_by(Prediction.user_id)
-    )
-    scored_by_user = {
-        row.user_id: {
-            "points": int(row.points or 0),
-            "correct_exact": int(row.correct_exact or 0),
-            "correct_result": int(row.correct_result or 0),
-        }
-        for row in db.execute(scored_stmt).all()
-    }
+        s["points"] += pts
+        if is_exact:
+            s["correct_exact"] += 1
+        if is_result:
+            s["correct_result"] += 1
 
     pred_count_stmt = (
         select(Prediction.user_id, func.count(Prediction.id))

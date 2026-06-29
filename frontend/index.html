@@ -688,6 +688,31 @@
     padding: 6px 10px; border-radius: 6px;
     font-size: 11px; color: var(--dorado); font-weight: 600;
   }
+  /* Bloque de "pasa por penales" en eliminatorias */
+  .pen-block {
+    margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+    background: rgba(255, 76, 76, 0.06); border: 1px solid rgba(255, 76, 76, 0.18);
+  }
+  .pen-label {
+    font-size: 11px; font-weight: 800; color: #ffd4d4;
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;
+  }
+  .pen-options { display: flex; gap: 8px; flex-wrap: wrap; }
+  .pen-opt {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 6px; cursor: pointer;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+    font-size: 12px; color: #fff; transition: all 0.15s;
+  }
+  .pen-opt:hover { background: rgba(255, 76, 76, 0.12); border-color: rgba(255, 76, 76, 0.4); }
+  .pen-opt.selected { background: rgba(255, 76, 76, 0.2); border-color: #ff4c4c; color: #fff; font-weight: 700; }
+  .pen-opt input[type="radio"] { margin: 0; cursor: pointer; }
+  .pen-hint { font-size: 10px; color: rgba(255,255,255,0.5); margin-top: 6px; font-style: italic; }
+  .pen-display {
+    margin-top: 6px; padding: 5px 10px; border-radius: 6px;
+    background: rgba(255, 76, 76, 0.08); border: 1px dashed rgba(255, 76, 76, 0.3);
+    font-size: 11px; color: #ffd4d4; font-weight: 600;
+  }
 
   /* === RANKING === */
   .ranking-tabs {
@@ -2164,12 +2189,38 @@ const PTS_CAMPEON = 10;
 const PTS_SUBCAMPEON = 5;
 
 // Mismo cálculo que backend/app/scoring.py (3 exacto / 1 mismo signo / 0)
-function calcPoints(prediction, official) {
+function calcPoints(prediction, official, matchOrId) {
   if (!prediction || !official) return 0;
   if (prediction.home == null || prediction.away == null) return 0;
   if (official.home == null || official.away == null) return 0;
   const pH = +prediction.home, pA = +prediction.away;
   const oH = +official.home, oA = +official.away;
+
+  // Detectar si es knockout. matchOrId puede ser el objeto match o un id string.
+  let match = null;
+  if (matchOrId && typeof matchOrId === 'object') match = matchOrId;
+  else if (typeof matchOrId === 'string') match = FIXTURE.find(m => m.id === matchOrId);
+  const isKnockout = match && match.phase && match.phase !== 'grupos';
+
+  if (isKnockout) {
+    const homeTla = (match.home || '').toUpperCase();
+    const awayTla = (match.away || '').toUpperCase();
+    const pPw = (prediction.penalty_winner || '').toUpperCase() || null;
+    const oPw = (official.penalty_winner || '').toUpperCase() || null;
+    let exact = (pH === oH && pA === oA);
+    if (exact && pH === pA) {
+      // Empate exacto: requiere también acertar penalty_winner
+      exact = (pPw && oPw && pPw === oPw);
+    }
+    const passer = (h, a, pw) => h > a ? homeTla : (a > h ? awayTla : (pw || null));
+    const pred_passer = passer(pH, pA, pPw);
+    const off_passer = passer(oH, oA, oPw);
+    if (exact) return 3;
+    if (pred_passer && off_passer && pred_passer === off_passer) return 1;
+    return 0;
+  }
+
+  // Grupos
   if (pH === oH && pA === oA) return 3;
   const sign = (x) => x > 0 ? 1 : (x < 0 ? -1 : 0);
   if (sign(pH - pA) === sign(oH - oA)) return 1;
@@ -2496,7 +2547,7 @@ async function loadAppData() {
 
     const predMap = {};
     (predictions || []).forEach(p => {
-      predMap[p.match_id] = { home: p.home_score, away: p.away_score };
+      predMap[p.match_id] = { home: p.home_score, away: p.away_score, penalty_winner: p.penalty_winner || null };
     });
     state.cache.predictions = predMap;
 
@@ -2506,7 +2557,11 @@ async function loadAppData() {
     // y se "perdían" al recargar).
     const resultsMap = {};
     (officialResults || []).forEach(r => {
-      resultsMap[r.match_id] = { home: r.home_score, away: r.away_score };
+      resultsMap[r.match_id] = {
+        home: r.home_score,
+        away: r.away_score,
+        penalty_winner: r.penalty_winner || null,
+      };
     });
     state.cache.officialResults = resultsMap;
 
@@ -2856,6 +2911,39 @@ function renderFixture() {
   ${groupedHtml || '<div class="empty-state"><span class="icon">⚽</span>No hay partidos para mostrar.</div>'}`;
 }
 
+function _penaltyWinnerBlock(m, pred, off, ctx) {
+  // Solo aplica a knockouts.
+  if (!ctx.isKnockout) return '';
+  const homeTla = (m.home || '').toUpperCase();
+  const awayTla = (m.away || '').toUpperCase();
+  if (homeTla === 'TBD' || awayTla === 'TBD') return '';
+  const tName = (tla) => (TEAMS[tla] && TEAMS[tla].name) || tla;
+  const predPw = pred && pred.penalty_winner ? pred.penalty_winner.toUpperCase() : '';
+  const offPw = off && off.penalty_winner ? off.penalty_winner.toUpperCase() : '';
+
+  if (ctx.canEditNow) {
+    return `
+    <div class="pen-block" data-pen-id="${m.id}">
+      <div class="pen-label">Si va a penales, pasa:</div>
+      <div class="pen-options">
+        <label class="pen-opt ${predPw === homeTla ? 'selected' : ''}">
+          <input type="radio" name="pw-${m.id}" value="${homeTla}" data-pen-input="${m.id}" ${predPw === homeTla ? 'checked' : ''}>
+          <span>${tName(homeTla)}</span>
+        </label>
+        <label class="pen-opt ${predPw === awayTla ? 'selected' : ''}">
+          <input type="radio" name="pw-${m.id}" value="${awayTla}" data-pen-input="${m.id}" ${predPw === awayTla ? 'checked' : ''}>
+          <span>${tName(awayTla)}</span>
+        </label>
+      </div>
+      <div class="pen-hint">Solo cuenta si predecís empate.</div>
+    </div>`;
+  }
+  if (ctx.hasPrediction && predPw) {
+    return `<div class="pen-display">⚽ Tu pase por penales: <strong>${tName(predPw)}</strong></div>`;
+  }
+  return '';
+}
+
 function renderMatch(m, predictions, officialResults) {
   const homeT = TEAMS[m.home];
   const awayT = TEAMS[m.away];
@@ -2894,12 +2982,16 @@ function renderMatch(m, predictions, officialResults) {
   const timeStr = m.time ? `${m.time} hs` : '';
   const venueStr = m.venue || '';
 
+  const isKnockout = m.phase && m.phase !== 'grupos';
   let pointsBadge = '';
   let officialDisp = '';
   if (hasOfficial) {
-    const pts = hasPrediction ? calcPoints(pred, off) : 0;
+    const pts = hasPrediction ? calcPoints(pred, off, m) : 0;
     pointsBadge = `<span class="points-badge ${pts > 0 ? '' : 'zero'}">${pts} PTS</span>`;
-    officialDisp = `<div class="official-result">⚽ Resultado oficial: ${off.home} - ${off.away}</div>`;
+    const offPwLbl = (isKnockout && off.penalty_winner && off.home === off.away)
+      ? ` · pasó por penales: <strong>${(TEAMS[off.penalty_winner] && TEAMS[off.penalty_winner].name) || off.penalty_winner}</strong>`
+      : '';
+    officialDisp = `<div class="official-result">⚽ Resultado oficial (90' + alargue): ${off.home} - ${off.away}${offPwLbl}</div>`;
   }
 
   // Badge de estado para que el usuario entienda qué le pasa al partido
@@ -2975,6 +3067,7 @@ function renderMatch(m, predictions, officialResults) {
         <span class="team-name">${awayName}</span>
       </div>
     </div>
+    ${_penaltyWinnerBlock(m, pred, off, { canEditNow, hasPrediction, hasOfficial, isKnockout, homeName, awayName })}
     <div class="match-footer">
       ${officialDisp || '<span></span>'}
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
@@ -3602,6 +3695,20 @@ function renderAdmin() {
             <span class="team-name">${awayName}</span>
           </div>
         </div>
+        ${(m.phase && m.phase !== 'grupos' && homeT && awayT) ? `
+        <div class="pen-block" data-admin-pen-id="${m.id}">
+          <div class="pen-label">Si terminó empatado, pasó por penales:</div>
+          <div class="pen-options">
+            <label class="pen-opt ${(off.penalty_winner || '').toUpperCase() === (m.home || '').toUpperCase() ? 'selected' : ''}">
+              <input type="radio" name="admin-pw-${m.id}" value="${m.home}" data-admin-pen-input="${m.id}" ${(off.penalty_winner || '').toUpperCase() === (m.home || '').toUpperCase() ? 'checked' : ''}>
+              <span>${homeName}</span>
+            </label>
+            <label class="pen-opt ${(off.penalty_winner || '').toUpperCase() === (m.away || '').toUpperCase() ? 'selected' : ''}">
+              <input type="radio" name="admin-pw-${m.id}" value="${m.away}" data-admin-pen-input="${m.id}" ${(off.penalty_winner || '').toUpperCase() === (m.away || '').toUpperCase() ? 'checked' : ''}>
+              <span>${awayName}</span>
+            </label>
+          </div>
+        </div>` : ''}
         <div class="match-footer">
           <span></span>
           <div style="display:flex;gap:6px;align-items:center;">
@@ -3643,12 +3750,36 @@ async function saveOfficialResult(matchId) {
   const awayInp = document.querySelector(`input[data-admin-id="${matchId}"][data-side="away"]`);
   const home = homeInp.value, away = awayInp.value;
   if (home === '' || away === '') { showToast('Completá ambos goles', 'error'); return; }
+  const homeN = parseInt(home), awayN = parseInt(away);
+
+  // Penalty winner para knockouts con empate
+  const match = FIXTURE.find(m => m.id === matchId);
+  const isKnockout = match && match.phase && match.phase !== 'grupos';
+  let penaltyWinner = null;
+  if (isKnockout && homeN === awayN) {
+    const pwInp = document.querySelector(`input[name="admin-pw-${matchId}"]:checked`);
+    if (!pwInp) {
+      showToast('Empate en eliminatoria: elegí quién pasó por penales', 'error');
+      return;
+    }
+    penaltyWinner = pwInp.value;
+  } else if (isKnockout) {
+    const pwInp = document.querySelector(`input[name="admin-pw-${matchId}"]:checked`);
+    if (pwInp) penaltyWinner = pwInp.value;
+  }
+
   try {
+    const body = { home_score: homeN, away_score: awayN };
+    if (penaltyWinner) body.penalty_winner = penaltyWinner;
     const res = await apiFetch(`/api/admin/result/${encodeURIComponent(matchId)}`, {
       method: 'POST',
-      body: JSON.stringify({ home_score: parseInt(home), away_score: parseInt(away) })
+      body: JSON.stringify(body)
     });
-    state.cache.officialResults[matchId] = { home: res.home_score, away: res.away_score };
+    state.cache.officialResults[matchId] = {
+      home: res.home_score,
+      away: res.away_score,
+      penalty_winner: res.penalty_winner || null,
+    };
     _resultsCache.at = 0; // forzá refetch en Transparencia
     await refreshLeaderboard();
     showToast('Resultado oficial cargado ✓');
@@ -3693,16 +3824,39 @@ async function savePrediction(matchId, opts = {}) {
     return;
   }
 
+  // Penalty winner para eliminatorias con empate previsto
+  const isKnockout = match && match.phase && match.phase !== 'grupos';
+  let penaltyWinner = null;
+  if (isKnockout && homeN === awayN) {
+    const pwInp = document.querySelector(`input[name="pw-${matchId}"]:checked`);
+    if (pwInp) {
+      penaltyWinner = pwInp.value;
+    } else {
+      if (!opts.silent) showToast('Elegí quién pasa por penales', 'error');
+      return;
+    }
+  } else if (isKnockout) {
+    // Si pone marcador con diferencia, capturamos el radio si lo eligió (pero no es obligatorio)
+    const pwInp = document.querySelector(`input[name="pw-${matchId}"]:checked`);
+    if (pwInp) penaltyWinner = pwInp.value;
+  }
+
   const card = document.querySelector(`[data-match-id="${matchId}"]`);
   if (card) card.dataset.saving = '1';
 
   const wasNew = !state.cache.predictions[matchId];
   try {
+    const body = { home_score: homeN, away_score: awayN };
+    if (penaltyWinner) body.penalty_winner = penaltyWinner;
     const res = await apiFetch(`/api/predictions/${encodeURIComponent(matchId)}`, {
       method: 'PUT',
-      body: JSON.stringify({ home_score: homeN, away_score: awayN })
+      body: JSON.stringify(body)
     });
-    state.cache.predictions[matchId] = { home: res.home_score, away: res.away_score };
+    state.cache.predictions[matchId] = {
+      home: res.home_score,
+      away: res.away_score,
+      penalty_winner: res.penalty_winner || null,
+    };
     refreshMyStandings();
     confetti({ intensity: 'small' });
     if (wasNew) {
@@ -3738,6 +3892,16 @@ async function savePrediction(matchId, opts = {}) {
 function bindContent() {
   document.querySelectorAll('.phase-btn').forEach(b => {
     b.onclick = () => { state.phaseFilter = b.dataset.phase; renderContent(); };
+  });
+  // Radios de penalty winner: actualizar visualmente la opción seleccionada.
+  document.querySelectorAll('[data-pen-input], [data-admin-pen-input]').forEach(rad => {
+    rad.onchange = () => {
+      const name = rad.name;
+      document.querySelectorAll(`input[name="${name}"]`).forEach(r => {
+        const lbl = r.closest('.pen-opt');
+        if (lbl) lbl.classList.toggle('selected', r.checked);
+      });
+    };
   });
   document.querySelectorAll('[data-save]').forEach(btn => {
     btn.onclick = () => savePrediction(btn.dataset.save);

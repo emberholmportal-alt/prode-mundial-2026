@@ -60,37 +60,58 @@ def _fetch_remote() -> Optional[list[dict]]:
         status = (m.get("status") or "").upper()
         home = m.get("homeTeam") or {}
         away = m.get("awayTeam") or {}
-        score = (m.get("score") or {}).get("fullTime") or {}
+        score_obj = m.get("score") or {}
+        duration = (score_obj.get("duration") or "").upper()
+        full_time = score_obj.get("fullTime") or {}
+        extra_time = score_obj.get("extraTime") or {}
+        # El "marcador después de 90' + alargue" es:
+        #  - extraTime si jugaron alargue o fueron a penales
+        #  - fullTime en cualquier otro caso
+        if duration in ("EXTRA_TIME", "PENALTY_SHOOTOUT") and extra_time:
+            final_home = extra_time.get("home")
+            final_away = extra_time.get("away")
+        else:
+            final_home = full_time.get("home")
+            final_away = full_time.get("away")
+        penalty_winner_tla = None
+        if duration == "PENALTY_SHOOTOUT":
+            winner = (score_obj.get("winner") or "").upper()
+            if winner == "HOME_TEAM":
+                penalty_winner_tla = (home.get("tla") or None)
+            elif winner == "AWAY_TEAM":
+                penalty_winner_tla = (away.get("tla") or None)
         matches.append({
             "remote_id": m.get("id"),
             "utc_kickoff": m.get("utcDate"),
             "status": status,
             "stage": (m.get("stage") or "").upper(),
+            "duration": duration,
             "home_name": home.get("name"),
             "home_tla": home.get("tla"),
             "away_name": away.get("name"),
             "away_tla": away.get("tla"),
-            "home_score": score.get("home"),
-            "away_score": score.get("away"),
+            "home_score": final_home,
+            "away_score": final_away,
+            "penalty_winner": penalty_winner_tla,
             "minute": m.get("minute"),
             "venue": m.get("venue"),
         })
     return matches
 
 
-# Lookup (home_tla, away_tla, utc_kickoff) -> match_id, solo fase de grupos
-# (los knockouts tienen equipos TBD hasta que se decidan).
+# Lookup (home_tla, away_tla, utc_kickoff) -> match_id. Construido bajo demanda
+# para reflejar los overrides de knockout_matches aplicados en FIXTURE_BY_ID
+# (apply_knockout_overrides muta esos slots con los TLAs y kickoff reales).
 def _build_match_lookup() -> dict[tuple[str, str, str], str]:
     lookup: dict[tuple[str, str, str], str] = {}
     for m in FIXTURE:
-        if m.get("phase") != "grupos":
+        h = (m.get("home") or "").upper()
+        a = (m.get("away") or "").upper()
+        ko = m.get("datetime_utc")
+        if not h or not a or h == "TBD" or a == "TBD" or not ko:
             continue
-        key = (m["home"].upper(), m["away"].upper(), m["datetime_utc"])
-        lookup[key] = m["id"]
+        lookup[(h, a, ko)] = m["id"]
     return lookup
-
-
-_MATCH_LOOKUP: dict[tuple[str, str, str], str] = _build_match_lookup()
 
 
 def _sync_finished_results(db: Session, remote_matches: list[dict]) -> int:
@@ -116,6 +137,10 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
     }
     if not remote_matches:
         return out
+    # Aseguramos que los overrides de knockouts estén aplicados, así el lookup
+    # incluye las eliminatorias con TLAs concretos (no las que siguen TBD).
+    apply_knockout_overrides(db)
+    lookup = _build_match_lookup()
     try:
         for rm in remote_matches:
             status = (rm.get("status") or "").upper()
@@ -126,12 +151,14 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
             home_tla = (rm.get("home_tla") or "").upper()
             away_tla = (rm.get("away_tla") or "").upper()
             kickoff = rm.get("utc_kickoff")
+            pw_remote = (rm.get("penalty_winner") or "").upper() or None
             base_info = {
                 "home_tla": home_tla,
                 "away_tla": away_tla,
                 "utc_kickoff": kickoff,
                 "home_score": hs,
                 "away_score": as_,
+                "penalty_winner": pw_remote,
             }
             if hs is None or as_ is None:
                 out["unmatched"].append({**base_info, "reason": "sin scores"})
@@ -140,10 +167,9 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
                 out["unmatched"].append({**base_info, "reason": "datos incompletos"})
                 continue
             key = (home_tla, away_tla, kickoff)
-            match_id = _MATCH_LOOKUP.get(key)
+            match_id = lookup.get(key)
             if match_id is None:
-                # Probamos un fallback laxo: solo por par de TLAs (cualquier kickoff)
-                fallback = [mid for (h, a, _ko), mid in _MATCH_LOOKUP.items()
+                fallback = [mid for (h, a, _ko), mid in lookup.items()
                             if h == home_tla and a == away_tla]
                 if fallback:
                     out["unmatched"].append({
@@ -156,12 +182,25 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
                 continue
             existing = db.get(OfficialResult, match_id)
             if existing is not None:
-                out["already_loaded"] += 1
+                # Si la fila auto está, pero el remoto cambió (típicamente porque
+                # ahora hay un penalty_winner que antes no estaba), actualizamos.
+                if existing.auto_loaded and (
+                    existing.home_score != int(hs)
+                    or existing.away_score != int(as_)
+                    or (existing.penalty_winner or None) != pw_remote
+                ):
+                    existing.home_score = int(hs)
+                    existing.away_score = int(as_)
+                    existing.penalty_winner = pw_remote
+                    out["synced"] += 1
+                else:
+                    out["already_loaded"] += 1
                 continue
             db.add(OfficialResult(
                 match_id=match_id,
                 home_score=int(hs),
                 away_score=int(as_),
+                penalty_winner=pw_remote,
                 auto_loaded=True,
             ))
             out["synced"] += 1
