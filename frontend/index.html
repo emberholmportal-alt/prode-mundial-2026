@@ -2927,9 +2927,15 @@ function _penaltyWinnerBlock(m, pred, off, ctx) {
   const offPw = off && off.penalty_winner ? off.penalty_winner.toUpperCase() : '';
 
   if (ctx.canEditNow) {
+    // Solo visible cuando el marcador previsto es empate (home === away, ambos
+    // cargados). Si no, queda oculto y se muestra/oculta dinámicamente con
+    // _togglePenBlock al tipear los goles.
+    const ph = pred && pred.home;
+    const pa = pred && pred.away;
+    const isDraw = ph != null && pa != null && ph !== '' && pa !== '' && +ph === +pa;
     return `
-    <div class="pen-block" data-pen-id="${m.id}">
-      <div class="pen-label">Si va a penales, pasa:</div>
+    <div class="pen-block" data-pen-id="${m.id}" ${isDraw ? '' : 'style="display:none;"'}>
+      <div class="pen-label">Empate: ¿quién pasa por penales?</div>
       <div class="pen-options">
         <label class="pen-opt ${predPw === homeTla ? 'selected' : ''}">
           <input type="radio" name="pw-${m.id}" value="${homeTla}" data-pen-input="${m.id}" ${predPw === homeTla ? 'checked' : ''}>
@@ -2940,13 +2946,42 @@ function _penaltyWinnerBlock(m, pred, off, ctx) {
           <span>${tName(awayTla)}</span>
         </label>
       </div>
-      <div class="pen-hint">Solo cuenta si predecís empate.</div>
+      <div class="pen-hint">Obligatorio porque predecís empate.</div>
     </div>`;
   }
   if (ctx.hasPrediction && predPw) {
     return `<div class="pen-display">⚽ Tu pase por penales: <strong>${tName(predPw)}</strong></div>`;
   }
   return '';
+}
+
+// Muestra/oculta el bloque de penales de un partido según si el marcador
+// cargado en los inputs es empate. Si deja de ser empate, limpia la selección.
+function _togglePenBlockGeneric(block, homeInp, awayInp) {
+  if (!block || !homeInp || !awayInp) return;
+  const h = homeInp.value, a = awayInp.value;
+  const isDraw = h !== '' && a !== '' && parseInt(h) === parseInt(a);
+  if (isDraw) {
+    block.style.display = '';
+  } else {
+    block.style.display = 'none';
+    block.querySelectorAll('input[type="radio"]').forEach(r => { r.checked = false; });
+    block.querySelectorAll('.pen-opt').forEach(o => o.classList.remove('selected'));
+  }
+}
+function _togglePenBlock(matchId) {
+  _togglePenBlockGeneric(
+    document.querySelector(`.pen-block[data-pen-id="${matchId}"]`),
+    document.querySelector(`input[data-id="${matchId}"][data-side="home"]`),
+    document.querySelector(`input[data-id="${matchId}"][data-side="away"]`)
+  );
+}
+function _togglePenBlockAdmin(matchId) {
+  _togglePenBlockGeneric(
+    document.querySelector(`.pen-block[data-admin-pen-id="${matchId}"]`),
+    document.querySelector(`input[data-admin-id="${matchId}"][data-side="home"]`),
+    document.querySelector(`input[data-admin-id="${matchId}"][data-side="away"]`)
+  );
 }
 
 function renderMatch(m, predictions, officialResults) {
@@ -3701,8 +3736,8 @@ function renderAdmin() {
           </div>
         </div>
         ${(m.phase && m.phase !== 'grupos' && homeT && awayT) ? `
-        <div class="pen-block" data-admin-pen-id="${m.id}">
-          <div class="pen-label">Si terminó empatado, pasó por penales:</div>
+        <div class="pen-block" data-admin-pen-id="${m.id}" ${(off.home != null && off.away != null && off.home === off.away) ? '' : 'style="display:none;"'}>
+          <div class="pen-label">Empate: ¿quién pasó por penales?</div>
           <div class="pen-options">
             <label class="pen-opt ${(off.penalty_winner || '').toUpperCase() === (m.home || '').toUpperCase() ? 'selected' : ''}">
               <input type="radio" name="admin-pw-${m.id}" value="${m.home}" data-admin-pen-input="${m.id}" ${(off.penalty_winner || '').toUpperCase() === (m.home || '').toUpperCase() ? 'checked' : ''}>
@@ -3829,7 +3864,9 @@ async function savePrediction(matchId, opts = {}) {
     return;
   }
 
-  // Penalty winner para eliminatorias con empate previsto
+  // Penalty winner: SOLO aplica en eliminatorias cuando el marcador es empate.
+  // Si no es empate, nunca se manda (evita la contradicción de elegir un
+  // pasador distinto al ganador del marcador).
   const isKnockout = match && match.phase && match.phase !== 'grupos';
   let penaltyWinner = null;
   if (isKnockout && homeN === awayN) {
@@ -3837,13 +3874,9 @@ async function savePrediction(matchId, opts = {}) {
     if (pwInp) {
       penaltyWinner = pwInp.value;
     } else {
-      if (!opts.silent) showToast('Elegí quién pasa por penales', 'error');
+      if (!opts.silent) showToast('Empate: elegí quién pasa por penales', 'error');
       return;
     }
-  } else if (isKnockout) {
-    // Si pone marcador con diferencia, capturamos el radio si lo eligió (pero no es obligatorio)
-    const pwInp = document.querySelector(`input[name="pw-${matchId}"]:checked`);
-    if (pwInp) penaltyWinner = pwInp.value;
   }
 
   const card = document.querySelector(`[data-match-id="${matchId}"]`);
@@ -3942,12 +3975,26 @@ function bindContent() {
   document.querySelectorAll('[data-admin-delete]').forEach(btn => {
     btn.onclick = () => deleteOfficialResult(btn.dataset.adminDelete);
   });
+  // Mostrar/ocultar selector de penales en el form admin según empate
+  document.querySelectorAll('input.score-input[data-admin-id]').forEach(input => {
+    input.addEventListener('input', () => _togglePenBlockAdmin(input.dataset.adminId));
+  });
 
   // Auto-save debounced de predicciones al tipear en los inputs
   document.querySelectorAll('input.score-input[data-id]').forEach(input => {
     input.addEventListener('input', () => {
       const id = input.dataset.id;
+      _togglePenBlock(id); // mostrar/ocultar selector de penales según empate
       debounce('pred:' + id, () => savePrediction(id, { silent: true }), 500);
+    });
+  });
+
+  // Elegir quién pasa por penales también persiste la predicción (el empate
+  // sin penal no se guarda en el auto-save).
+  document.querySelectorAll('input[data-pen-input]').forEach(rad => {
+    rad.addEventListener('change', () => {
+      const id = rad.dataset.penInput;
+      debounce('pred:' + id, () => savePrediction(id, { silent: true }), 300);
     });
   });
 
