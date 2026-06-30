@@ -219,8 +219,9 @@ def force_sync_now(db: Session) -> dict:
         _cache["at"] = 0.0
         _cache["error"] = None
     remote = _fetch_remote()
-    diag = _sync_with_diagnostics(db, remote or [])
+    # Asignar cruces antes de sincronizar resultados (ver nota en live_status).
     knockouts_assigned = auto_assign_knockouts(db, remote or [])
+    diag = _sync_with_diagnostics(db, remote or [])
     with _lock:
         _cache["payload"] = remote
         _cache["at"] = time.monotonic()
@@ -258,8 +259,9 @@ def _bg_run_once() -> None:
             with _lock:
                 _cache["payload"] = remote
                 _cache["at"] = time.monotonic()
-            diag = _sync_with_diagnostics(db, remote)
+            # Asignar cruces antes de sincronizar resultados (ver nota en live_status).
             assigned = auto_assign_knockouts(db, remote)
+            diag = _sync_with_diagnostics(db, remote)
             _bg_last_run["error"] = None
             _bg_last_run["result"] = {
                 "synced": diag.get("synced", 0),
@@ -710,11 +712,14 @@ def live_status(request: Request, db: Session = Depends(get_db)):
         with _lock:
             _cache["payload"] = remote_matches
             _cache["at"] = time.monotonic()
-        # Auto-sync de partidos FINISHED → official_results (no pisa manuales)
-        # + auto-asignación de equipos para los slots K1..K30 de fases eliminatorias
+        # IMPORTANTE el orden: primero asignar los cruces de eliminatorias
+        # (para que los slots K tengan TLAs reales), después sincronizar los
+        # resultados FINISHED (el lookup ya incluye esos partidos). Si se hace
+        # al revés, en la primera pasada que define un cruce no se carga el
+        # resultado de ese partido.
         if remote_matches:
-            _sync_finished_results(db, remote_matches)
             auto_assign_knockouts(db, remote_matches)
+            _sync_finished_results(db, remote_matches)
     else:
         remote_matches = cached
 
