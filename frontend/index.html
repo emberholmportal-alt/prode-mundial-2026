@@ -1351,6 +1351,11 @@
   .arg-match-meta { font-size: 11px; color: rgba(255,255,255,0.6); }
   .arg-match-tv { font-size: 10.5px; color: #d6e394; margin-top: 2px; letter-spacing: 0.3px; }
   .arg-match-note { font-size: 10px; color: rgba(255,255,255,0.4); margin-top: 8px; font-style: italic; line-height: 1.35; }
+  .arg-match-phase { font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; color: rgba(116,172,223,0.85); font-weight: 700; margin-bottom: 2px; }
+  .arg-match-phase strong { color: #d6e394; }
+  .arg-match-next { background: rgba(116,172,223,0.1); border: 1px solid rgba(116,172,223,0.35); border-radius: 8px; padding: 8px 10px; margin: 6px 0; }
+  .arg-match-next.arg-match { border-top: 1px solid rgba(116,172,223,0.35); }
+  .arg-match-result { font-size: 11px; color: #7bd97b; font-weight: 800; margin-top: 2px; }
   /* Sponsor side block — Viva la Vida */
   .sponsor-side-block { padding: 0; overflow: hidden; border-color: rgba(236,29,140,0.35); }
   .sponsor-side-label {
@@ -4525,36 +4530,53 @@ function _todayMatchesHTML() {
 // Cronograma de Argentina en fase de grupos con canales de TV en ARG
 const ARG_TV_CHANNELS = 'TV Pública · DSports · Telefe';
 function _argentinaScheduleHTML() {
-  const argGroup = FIXTURE.filter(m =>
-    m.phase === 'grupos' && (m.home === 'ARG' || m.away === 'ARG')
-  ).sort((a, b) => {
-    const ta = a.date + 'T' + (a.time || '00:00');
-    const tb = b.date + 'T' + (b.time || '00:00');
-    return ta.localeCompare(tb);
-  });
-  if (argGroup.length === 0) return '';
+  // Todos los partidos donde Argentina juega: grupos siempre, y eliminatorias
+  // una vez que quedó asignada (home/away === 'ARG', no TBD).
+  const argMatches = FIXTURE.filter(m =>
+    m.home === 'ARG' || m.away === 'ARG'
+  ).sort((a, b) => _matchKickoffMs(a) - _matchKickoffMs(b));
+  if (argMatches.length === 0) return '';
 
   const fmtDate = (m) => {
     const d = new Date(`${m.date}T${m.time || '00:00'}:00-03:00`);
     return d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: 'short' });
   };
 
+  const nowMs = Date.now();
+  // Próximo partido = el primero cuyo kickoff todavía no pasó (con margen +2h
+  // por si está jugándose).
+  const FINISHED_AFTER = 2 * 60 * 60 * 1000;
+  const nextMatch = argMatches.find(m => _matchKickoffMs(m) + FINISHED_AFTER > nowMs);
+
   let html = `<div class="side-block">
     <div class="side-title">🇦🇷 Argentina en el Mundial</div>`;
-  argGroup.forEach(m => {
+  argMatches.forEach(m => {
     const home = _teamNameOrCode(m.home);
     const away = _teamNameOrCode(m.away);
     const argIsHome = m.home === 'ARG';
     const teams = argIsHome
       ? `<strong>${home}</strong> vs ${away}`
       : `${home} vs <strong>${away}</strong>`;
-    html += `<div class="arg-match">
+    const phaseLbl = _PHASE_LABELS[m.phase] || '';
+    const isNext = nextMatch && m.id === nextMatch.id;
+    const off = (state.cache.officialResults || {})[m.id];
+    const hasResult = off && off.home != null && off.away != null;
+    let resultLine = '';
+    if (hasResult) {
+      let extra = '';
+      if (m.phase !== 'grupos' && off.penalty_winner && off.home === off.away) {
+        extra = ` (pen: ${_teamNameOrCode(off.penalty_winner)})`;
+      }
+      resultLine = `<div class="arg-match-result">✅ ${off.home} - ${off.away}${extra}</div>`;
+    }
+    html += `<div class="arg-match ${isNext ? 'arg-match-next' : ''}">
+      <div class="arg-match-phase">${phaseLbl}${isNext ? ' · <strong>PRÓXIMO</strong>' : ''}</div>
       <div class="arg-match-teams">${teams}</div>
       <div class="arg-match-meta">📅 ${fmtDate(m)} · 🕐 ${m.time || '?'} hs (ART)</div>
-      <div class="arg-match-tv">📺 ${ARG_TV_CHANNELS}</div>
+      ${resultLine || `<div class="arg-match-tv">📺 ${ARG_TV_CHANNELS}</div>`}
     </div>`;
   });
-  html += `<div class="arg-match-note">Los partidos de eliminación se confirman si Argentina avanza. Canales según derechos confirmados.</div>`;
+  html += `<div class="arg-match-note">Los partidos de eliminación aparecen cuando se confirma el cruce. Canales según derechos confirmados.</div>`;
   html += `</div>`;
   return html;
 }
