@@ -163,23 +163,24 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
             if hs is None or as_ is None:
                 out["unmatched"].append({**base_info, "reason": "sin scores"})
                 continue
-            if not (home_tla and away_tla and kickoff):
+            if not (home_tla and away_tla):
                 out["unmatched"].append({**base_info, "reason": "datos incompletos"})
                 continue
-            key = (home_tla, away_tla, kickoff)
-            match_id = lookup.get(key)
+            # 1) Match exacto (local, visitante, kickoff).
+            match_id = lookup.get((home_tla, away_tla, kickoff)) if kickoff else None
+            # 2) Fallback: match por par de equipos (único en todo el torneo).
+            #    Cubre el caso de que FIFA haya movido el horario respecto al
+            #    que tenemos cargado. Antes esto solo se reportaba, ahora carga.
             if match_id is None:
-                fallback = [mid for (h, a, _ko), mid in lookup.items()
-                            if h == home_tla and a == away_tla]
-                if fallback:
-                    out["unmatched"].append({
-                        **base_info,
-                        "reason": "kickoff no coincide",
-                        "fixture_match_id_por_tla": fallback[0],
-                    })
+                by_pair = [mid for (h, a, _ko), mid in lookup.items()
+                           if h == home_tla and a == away_tla]
+                if by_pair:
+                    match_id = by_pair[0]
+                    out.setdefault("matched_by_tla", 0)
+                    out["matched_by_tla"] += 1
                 else:
                     out["unmatched"].append({**base_info, "reason": "TLAs no matchean FIXTURE"})
-                continue
+                    continue
             existing = db.get(OfficialResult, match_id)
             if existing is not None:
                 # Si la fila auto está, pero el remoto cambió (típicamente porque
