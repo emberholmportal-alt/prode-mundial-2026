@@ -198,6 +198,10 @@ class Comment(Base):
         ForeignKey("comments.id", ondelete="CASCADE"),
         nullable=True,
     )
+    # Destacado por un admin → se muestra con recuadro verde.
+    highlighted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), nullable=False, server_default=func.now()
     )
