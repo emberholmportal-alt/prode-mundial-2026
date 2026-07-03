@@ -8,16 +8,22 @@ import threading
 import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..fixtures import FIXTURE_BY_ID
+from ..fixtures import FIXTURE_BY_ID, TEAMS, apply_knockout_overrides
 from ..limiter import limiter
-from ..models import Prediction, User
+from ..models import OfficialResult, Prediction, User
+from .leaderboard import _calc_match_points
 
 router = APIRouter(prefix="/audit", tags=["audit"])
+
+_PHASE_LABELS = {
+    "grupos": "Grupos", "dieciseisavos": "16vos", "octavos": "Octavos",
+    "cuartos": "Cuartos", "semis": "Semis", "tercerpuesto": "3er Puesto", "final": "Final",
+}
 
 _CACHE_TTL_SECONDS = 30
 _cache: dict[str, Any] = {"at": 0.0, "payload": None}
@@ -104,3 +110,89 @@ def audit_users(request: Request, db: Session = Depends(get_db)):
         _cache["at"] = time.monotonic()
         _cache["payload"] = payload
     return payload
+
+
+def _team_name(tla: str) -> str:
+    t = TEAMS.get((tla or "").upper())
+    return t["name"] if t else (tla or "?")
+
+
+@router.get("/users/{username}/detail")
+@limiter.limit("60/minute")
+def audit_user_detail(username: str, request: Request, db: Session = Depends(get_db)):
+    """Detalle transparente de un usuario: por cada partido YA FINALIZADO
+    (con resultado oficial cargado), muestra qué pronosticó, cómo salió,
+    cuántos puntos sumó y cuándo cargó/modificó ese pronóstico.
+
+    Solo partidos finalizados → no se filtra info de partidos futuros.
+    """
+    apply_knockout_overrides(db)
+
+    uname = (username or "").strip().lower()
+    user = db.scalar(select(User).where(func.lower(User.username) == uname))
+    if user is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Partidos finalizados = los que tienen OfficialResult cargado.
+    officials = {o.match_id: o for o in db.scalars(select(OfficialResult)).all()}
+    preds = {
+        p.match_id: p
+        for p in db.scalars(
+            select(Prediction).where(Prediction.user_id == user.id)
+        ).all()
+    }
+
+    rows = []
+    total_points = 0
+    for match_id, off in officials.items():
+        fx = FIXTURE_BY_ID.get(match_id)
+        if fx is None:
+            continue
+        p = preds.get(match_id)
+        pts = 0
+        pred_block = None
+        pred_ts = None
+        if p is not None:
+            pts, _exact, _res = _calc_match_points(p, off, fx)
+            total_points += pts
+            pred_block = {
+                "home": p.home_score,
+                "away": p.away_score,
+                "penalty_winner": p.penalty_winner,
+                "penalty_winner_name": _team_name(p.penalty_winner) if p.penalty_winner else None,
+            }
+            pred_ts = p.updated_at.isoformat() + "Z" if p.updated_at else None
+
+        rows.append({
+            "match_id": match_id,
+            "phase": fx.get("phase"),
+            "phase_label": _PHASE_LABELS.get(fx.get("phase"), fx.get("phase")),
+            "home_tla": fx.get("home"),
+            "away_tla": fx.get("away"),
+            "home_name": _team_name(fx.get("home")),
+            "away_name": _team_name(fx.get("away")),
+            "kickoff_utc": fx.get("datetime_utc"),
+            "official": {
+                "home": off.home_score,
+                "away": off.away_score,
+                "penalty_winner": off.penalty_winner,
+                "penalty_winner_name": _team_name(off.penalty_winner) if off.penalty_winner else None,
+            },
+            "prediction": pred_block,
+            "prediction_updated_at": pred_ts,
+            "points": pts,
+        })
+
+    # Orden cronológico por kickoff.
+    rows.sort(key=lambda r: r.get("kickoff_utc") or "")
+
+    return {
+        "username": user.username,
+        "display_name": user.display_name,
+        "company": user.company,
+        "city": user.city,
+        "finished_matches": len(rows),
+        "predicted_count": sum(1 for r in rows if r["prediction"] is not None),
+        "total_points": total_points,
+        "rows": rows,
+    }
