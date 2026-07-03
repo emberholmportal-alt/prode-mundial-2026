@@ -356,23 +356,33 @@ STAGE_TO_PHASE = {
 }
 
 
+def _k_num(match_id: str) -> int:
+    try:
+        return int((match_id or "K0")[1:])
+    except Exception:
+        return 0
+
+
 def auto_assign_knockouts(db: Session, remote_matches: Optional[list[dict]]) -> int:
-    """Detecta partidos no-grupo en football-data.org con equipos concretos
-    y los mapea a nuestros slots K1..K30 del FIXTURE.
+    """Asigna los partidos de eliminatorias (con equipos concretos) desde
+    football-data.org a nuestros slots K1..K30, de forma ESTABLE por par de
+    equipos y sin duplicados.
 
-    Estrategia: para cada fase (dieciseisavos, octavos, etc), ordenamos
-    los partidos remotos de esa fase por kickoff y los pareamos con
-    nuestros slots de la misma fase también ordenados por kickoff.
+    Por cada fase:
+    - Cada par (local, visitante) queda pegado a un slot fijo (no se reordena
+      entre corridas, así los pronósticos no "se mueven" de partido).
+    - Filas auto cuyo par ya no está en la data remota se BORRAN (limpia
+      duplicados/fantasmas de asignaciones viejas por índice).
+    - Pares nuevos (ej. un cruce que la API define más tarde) se colocan en el
+      slot K libre más bajo de esa fase.
+    - Las filas source='manual' nunca se tocan.
 
-    - Si la fila en DB ya existe con source='manual', NO se sobreescribe.
-    - Si existe con source='auto' y los datos remotos cambiaron, se actualiza.
-    - Si no existe, se inserta.
-    - Devuelve el número de filas afectadas (insertadas o actualizadas).
+    Devuelve la cantidad de filas afectadas (insertadas/actualizadas/borradas).
     """
     if not remote_matches:
         return 0
 
-    # Slots nuestros por fase, ordenados cronológicamente
+    # Slots nuestros por fase, ordenados por número de slot (K17, K18, ...).
     our_by_phase: dict[str, list[dict]] = {}
     for m in FIXTURE:
         ph = m.get("phase")
@@ -380,9 +390,18 @@ def auto_assign_knockouts(db: Session, remote_matches: Optional[list[dict]]) -> 
             continue
         our_by_phase.setdefault(ph, []).append(m)
     for ph in our_by_phase:
-        our_by_phase[ph].sort(key=lambda x: x.get("datetime_utc") or "")
+        our_by_phase[ph].sort(key=lambda x: _k_num(x["id"]))
 
-    # Partidos remotos no-grupo con equipos concretos, agrupados por fase
+    def _venue_of(rm):
+        v = rm.get("venue")
+        if isinstance(v, dict):
+            return v.get("name")
+        if isinstance(v, str):
+            return v
+        return None
+
+    # Partidos remotos no-grupo con equipos concretos, deduplicados por par,
+    # agrupados por fase y ordenados por kickoff.
     remote_by_phase: dict[str, list[dict]] = {}
     for rm in remote_matches:
         stage_raw = (rm.get("stage") or "").upper().replace("-", "_").replace(" ", "_")
@@ -391,61 +410,78 @@ def auto_assign_knockouts(db: Session, remote_matches: Optional[list[dict]]) -> 
             continue
         h = (rm.get("home_tla") or "").upper()
         a = (rm.get("away_tla") or "").upper()
-        if not h or not a or h == "TBD" or a == "TBD":
+        kickoff = rm.get("utc_kickoff")
+        if not h or not a or h == "TBD" or a == "TBD" or not kickoff:
             continue
-        remote_by_phase.setdefault(phase, []).append(rm)
+        remote_by_phase.setdefault(phase, []).append({
+            "home": h, "away": a, "kickoff": kickoff, "venue": _venue_of(rm),
+        })
     for ph in remote_by_phase:
-        remote_by_phase[ph].sort(key=lambda r: r.get("utc_kickoff") or "")
+        remote_by_phase[ph].sort(key=lambda d: d["kickoff"] or "")
 
     affected = 0
     try:
         for phase, our_slots in our_by_phase.items():
-            remotes = remote_by_phase.get(phase, [])
-            for i, our in enumerate(our_slots):
-                if i >= len(remotes):
-                    break
-                rm = remotes[i]
-                h = (rm.get("home_tla") or "").upper()
-                a = (rm.get("away_tla") or "").upper()
-                kickoff = rm.get("utc_kickoff")
-                if not kickoff:
+            slot_ids = [s["id"] for s in our_slots]
+            desired = []
+            seen = set()
+            for d in remote_by_phase.get(phase, []):
+                pair = (d["home"], d["away"])
+                if pair in seen:
                     continue
-                venue = None
-                v = rm.get("venue")
-                if isinstance(v, dict):
-                    venue = v.get("name")
-                elif isinstance(v, str):
-                    venue = v
-                existing = db.get(KnockoutMatch, our["id"])
-                if existing is None:
+                seen.add(pair)
+                desired.append(d)
+            desired_pairs = {(d["home"], d["away"]) for d in desired}
+
+            existing_rows = {sid: db.get(KnockoutMatch, sid) for sid in slot_ids}
+            manual_pairs = {
+                (r.home_tla, r.away_tla)
+                for r in existing_rows.values() if r and r.source == "manual"
+            }
+            pair_to_slot: dict[tuple, str] = {}
+            free_slots: list[str] = []
+            for sid in slot_ids:
+                r = existing_rows[sid]
+                if r is None:
+                    free_slots.append(sid)
+                    continue
+                if r.source == "manual":
+                    continue  # bloqueado, ocupa su slot
+                pair = (r.home_tla, r.away_tla)
+                # Conservar la PRIMera aparición de cada par deseado; cualquier
+                # otra fila (par obsoleto o par duplicado) se borra y libera slot.
+                if pair in desired_pairs and pair not in pair_to_slot:
+                    pair_to_slot[pair] = sid
+                else:
+                    db.delete(r)
+                    affected += 1
+                    free_slots.append(sid)
+
+            for d in desired:
+                pair = (d["home"], d["away"])
+                if pair in manual_pairs:
+                    continue  # el admin ya lo fijó a mano
+                if pair in pair_to_slot:
+                    r = existing_rows[pair_to_slot[pair]]
+                    if r.datetime_utc != d["kickoff"] or (d["venue"] and r.venue != d["venue"]):
+                        r.datetime_utc = d["kickoff"]
+                        if d["venue"]:
+                            r.venue = d["venue"]
+                        affected += 1
+                elif free_slots:
+                    sid = free_slots.pop(0)
                     db.add(KnockoutMatch(
-                        match_id=our["id"],
-                        home_tla=h,
-                        away_tla=a,
-                        datetime_utc=kickoff,
-                        venue=venue,
+                        match_id=sid,
+                        home_tla=d["home"], away_tla=d["away"],
+                        datetime_utc=d["kickoff"], venue=d["venue"],
                         source="auto",
                     ))
                     affected += 1
-                elif existing.source == "auto":
-                    changed = (
-                        existing.home_tla != h
-                        or existing.away_tla != a
-                        or existing.datetime_utc != kickoff
-                        or (venue and existing.venue != venue)
-                    )
-                    if changed:
-                        existing.home_tla = h
-                        existing.away_tla = a
-                        existing.datetime_utc = kickoff
-                        if venue:
-                            existing.venue = venue
-                        affected += 1
-                # Si source='manual', no se toca
+                # si no hay slot libre, se ignora (no debería pasar: #slots == #partidos)
+
         if affected > 0:
             db.commit()
-            # Aplicar inmediatamente sobre FIXTURE_BY_ID en memoria, así
-            # match_deadline_utc / is_match_locked usan el kickoff real al toque.
+            # Aplicar inmediatamente sobre FIXTURE_BY_ID en memoria.
             apply_knockout_overrides(db)
     except Exception:
         db.rollback()

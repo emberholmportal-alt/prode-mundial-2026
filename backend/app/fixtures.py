@@ -274,6 +274,21 @@ def get_match(match_id: str) -> Optional[Match]:
     return FIXTURE_BY_ID.get(match_id)
 
 
+# Snapshot de los valores originales (tentativos) de cada slot de eliminatoria.
+# Se usa para poder resetear un slot si su asignación se borra de la DB.
+_ORIGINAL_KNOCKOUT: dict[str, dict] = {
+    m["id"]: {
+        "home": m["home"],
+        "away": m["away"],
+        "datetime_utc": m["datetime_utc"],
+        "datetime_art": m["datetime_art"],
+        "venue": m["venue"],
+    }
+    for m in FIXTURE
+    if m.get("phase") != "grupos"
+}
+
+
 def apply_knockout_overrides(db) -> int:
     """Aplica las asignaciones de la tabla knockout_matches sobre FIXTURE/FIXTURE_BY_ID
     en memoria. Reemplaza home, away, datetime_utc, datetime_art y venue de cada
@@ -292,7 +307,23 @@ def apply_knockout_overrides(db) -> int:
 
     updated = 0
     try:
-        for km in db.scalars(_select(KnockoutMatch)).all():
+        rows = db.scalars(_select(KnockoutMatch)).all()
+        assigned_ids = {km.match_id for km in rows}
+        # 1) Resetear a los valores originales los slots que NO tienen asignación
+        #    (por si una asignación previa se borró: evita datos fantasma en memoria).
+        for mid, orig in _ORIGINAL_KNOCKOUT.items():
+            if mid in assigned_ids:
+                continue
+            m = FIXTURE_BY_ID.get(mid)
+            if m is None:
+                continue
+            m["home"] = orig["home"]
+            m["away"] = orig["away"]
+            m["datetime_utc"] = orig["datetime_utc"]
+            m["datetime_art"] = orig["datetime_art"]
+            m["venue"] = orig["venue"]
+        # 2) Aplicar los overrides vigentes.
+        for km in rows:
             m = FIXTURE_BY_ID.get(km.match_id)
             if m is None:
                 continue
