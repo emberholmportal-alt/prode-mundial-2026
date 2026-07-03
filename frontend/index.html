@@ -1671,10 +1671,7 @@
   .udetail-pts.p3 { color: #7bd97b; }
   .udetail-pts.p1 { color: #ffd178; }
   .udetail-pts.p0 { color: rgba(255,255,255,0.4); }
-  .udetail-ts { font-size: 10.5px; color: rgba(255,255,255,0.55); white-space: nowrap; }
-  @media (max-width: 600px) {
-    .udetail-table .col-hide { display: none; }
-  }
+  .udetail-ts { font-size: 10px; color: rgba(255,255,255,0.5); margin-top: 3px; font-weight: 400; }
   /* Modal de cambio de contraseña forzado */
   .pwd-modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.78);
@@ -5173,15 +5170,18 @@ function _renderUserDetail(data) {
       : `<span class="udetail-nopred">no pronosticó</span>`;
     const pts = r.points || 0;
     const ptsClass = pts >= 3 ? 'p3' : (pts >= 1 ? 'p1' : 'p0');
+    const tsLine = r.prediction_updated_at
+      ? `<div class="udetail-ts">🕐 ${fmtTs(r.prediction_updated_at)}</div>`
+      : '';
     return `<tr>
       <td class="udetail-match">
         <div class="udetail-phase">${_escHtml(r.phase_label || '')}</div>
         ${_escHtml(r.home_name)} vs ${_escHtml(r.away_name)}
+        ${tsLine}
       </td>
       <td class="udetail-score">${off.home}-${off.away}${offPen}</td>
       <td class="udetail-score">${predCell}</td>
       <td class="udetail-pts ${ptsClass}">${pts}</td>
-      <td class="udetail-ts col-hide">${fmtTs(r.prediction_updated_at)}</td>
     </tr>`;
   }).join('');
 
@@ -5194,7 +5194,6 @@ function _renderUserDetail(data) {
             <th style="text-align:center;">Salió</th>
             <th style="text-align:center;">Pronóstico</th>
             <th style="text-align:center;">Pts</th>
-            <th class="col-hide">Cargado</th>
           </tr>
         </thead>
         <tbody>${body}</tbody>
