@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,8 @@ from .live_routes import (
     audit_schedule,
     background_sync_status,
     force_sync_now,
+    knockouts_debug,
+    set_knockout_manual,
     sync_state_snapshot,
 )
 from ..schemas import (
@@ -223,6 +227,44 @@ def schedule_audit(request: Request, db: Session = Depends(get_db)):
     swapped_teams / remote_not_found / tbd_skipped.
     """
     return audit_schedule(db)
+
+
+@router.get("/knockouts-debug")
+@limiter.limit("20/minute")
+def knockouts_debug_route(request: Request, db: Session = Depends(get_db)):
+    """Muestra qué cruces de eliminación tenemos asignados en DB vs qué
+    devuelve football-data.org. Sirve para entender por qué un cruce (ej.
+    España-Portugal) no se asignó todavía."""
+    return knockouts_debug(db)
+
+
+class KnockoutManualIn(BaseModel):
+    home: str = Field(min_length=2, max_length=3)
+    away: str = Field(min_length=2, max_length=3)
+    datetime_utc: str = Field(min_length=10, max_length=40)
+    venue: Optional[str] = Field(default=None, max_length=255)
+
+
+@router.post("/knockout/{match_id}")
+@limiter.limit("30/minute")
+def set_knockout(
+    request: Request,
+    match_id: str,
+    payload: KnockoutManualIn,
+    db: Session = Depends(get_db),
+):
+    """Asigna manualmente el cruce de un slot de eliminación (source='manual').
+    No lo pisa el auto-sync. Útil si la API tarda en publicar un cruce."""
+    h = payload.home.upper()
+    a = payload.away.upper()
+    if h not in TEAMS or a not in TEAMS:
+        raise HTTPException(status_code=400, detail="Código de equipo inválido")
+    if h == a:
+        raise HTTPException(status_code=400, detail="Los dos equipos no pueden ser iguales")
+    try:
+        return set_knockout_manual(db, match_id, h, a, payload.datetime_utc, payload.venue)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.get("/stats", response_model=AdminStats)

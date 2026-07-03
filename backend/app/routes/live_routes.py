@@ -356,6 +356,98 @@ STAGE_TO_PHASE = {
 }
 
 
+def knockouts_debug(db: Session) -> dict:
+    """Diagnóstico de eliminatorias: qué tenemos asignado en DB vs qué está
+    devolviendo football-data.org para las fases no-grupo. Refresca cache si
+    está vencido.
+    """
+    from ..models import KnockoutMatch
+
+    with _lock:
+        cached = _cache.get("payload")
+        at = _cache.get("at") or 0.0
+    if not (cached and (time.monotonic() - at) < _API_TTL):
+        cached = _fetch_remote()
+        with _lock:
+            _cache["payload"] = cached
+            _cache["at"] = time.monotonic()
+
+    # Lo que devuelve la API para fases no-grupo
+    api_rows = []
+    for rm in cached or []:
+        stage_raw = (rm.get("stage") or "").upper().replace("-", "_").replace(" ", "_")
+        phase = STAGE_TO_PHASE.get(stage_raw)
+        if phase is None:
+            # Solo nos interesan no-grupo; si el stage no mapea pero tampoco es
+            # grupo, lo mostramos como 'stage_no_mapea' para detectar variantes.
+            if stage_raw and "GROUP" not in stage_raw:
+                api_rows.append({
+                    "stage_raw": stage_raw, "phase": None,
+                    "home_tla": rm.get("home_tla"), "away_tla": rm.get("away_tla"),
+                    "utc_kickoff": rm.get("utc_kickoff"), "status": rm.get("status"),
+                })
+            continue
+        api_rows.append({
+            "stage_raw": stage_raw, "phase": phase,
+            "home_tla": rm.get("home_tla"), "away_tla": rm.get("away_tla"),
+            "utc_kickoff": rm.get("utc_kickoff"), "status": rm.get("status"),
+        })
+    api_rows.sort(key=lambda r: (r.get("phase") or "zzz", r.get("utc_kickoff") or ""))
+
+    # Lo que tenemos asignado en la DB
+    db_rows = [
+        {
+            "match_id": km.match_id,
+            "home_tla": km.home_tla,
+            "away_tla": km.away_tla,
+            "datetime_utc": km.datetime_utc,
+            "venue": km.venue,
+            "source": km.source,
+        }
+        for km in db.scalars(sa.select(KnockoutMatch)).all()
+    ]
+    db_rows.sort(key=lambda r: r["match_id"])
+
+    return {
+        "token_present": bool(FOOTBALL_DATA_TOKEN),
+        "remote_available": cached is not None,
+        "api_knockout_matches": api_rows,
+        "db_assignments": db_rows,
+    }
+
+
+def set_knockout_manual(db: Session, match_id: str, home_tla: str, away_tla: str,
+                        datetime_utc: str, venue: Optional[str]) -> dict:
+    """Asigna manualmente un cruce de eliminación a un slot K (source='manual').
+    Las asignaciones manuales NO las pisa el auto-sync. Devuelve la fila.
+    """
+    from ..fixtures import FIXTURE_BY_ID
+    from ..models import KnockoutMatch
+
+    fx = FIXTURE_BY_ID.get(match_id)
+    if fx is None or fx.get("phase") == "grupos":
+        raise ValueError("match_id no es un slot de eliminación válido")
+    h = (home_tla or "").upper()
+    a = (away_tla or "").upper()
+    row = db.get(KnockoutMatch, match_id)
+    if row is None:
+        row = KnockoutMatch(match_id=match_id, home_tla=h, away_tla=a,
+                            datetime_utc=datetime_utc, venue=venue, source="manual")
+        db.add(row)
+    else:
+        row.home_tla = h
+        row.away_tla = a
+        row.datetime_utc = datetime_utc
+        row.venue = venue
+        row.source = "manual"
+    db.commit()
+    apply_knockout_overrides(db)
+    return {
+        "match_id": row.match_id, "home_tla": row.home_tla, "away_tla": row.away_tla,
+        "datetime_utc": row.datetime_utc, "venue": row.venue, "source": row.source,
+    }
+
+
 def _k_num(match_id: str) -> int:
     try:
         return int((match_id or "K0")[1:])

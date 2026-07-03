@@ -3736,8 +3736,10 @@ function renderAdmin() {
       <button class="btn-save" id="btnSyncNow">⚡ Forzar sync ahora</button>
       <button class="btn-save" id="btnResultsAudit" style="background:rgba(255,182,76,0.18);border:1px solid rgba(255,182,76,0.55);">🔎 Auditar resultados cargados</button>
       <button class="btn-save" id="btnScheduleAudit" style="background:rgba(120,180,255,0.18);border:1px solid rgba(120,180,255,0.55);">🕐 Verificar horarios</button>
+      <button class="btn-save" id="btnKnockouts" style="background:rgba(180,120,255,0.18);border:1px solid rgba(180,120,255,0.55);">🔧 Cruces de eliminación</button>
     </div>
     <pre id="syncOutput" style="display:none;margin-top:10px;padding:10px;background:rgba(0,0,0,0.4);border-radius:8px;font-size:11px;color:#d6e394;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;"></pre>
+    <div id="knockoutsPanel" style="display:none;margin-top:10px;"></div>
   </div>
 
   <div class="champion-card">
@@ -4179,6 +4181,114 @@ function bindContent() {
       if (reset) reset();
     }
   };
+
+  const btnKnockouts = document.getElementById('btnKnockouts');
+  if (btnKnockouts) btnKnockouts.onclick = () => loadKnockoutsPanel();
+}
+
+async function loadKnockoutsPanel() {
+  const panel = document.getElementById('knockoutsPanel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="color:rgba(255,255,255,0.6);font-size:12px;">Cargando cruces…</div>';
+  let data;
+  try {
+    data = await apiFetch('/api/admin/knockouts-debug', { method: 'GET' });
+  } catch (e) {
+    panel.innerHTML = `<div style="color:#ffaa70;font-size:12px;">Error: ${_escHtml(e.message || '')}</div>`;
+    return;
+  }
+  const teamName = (tla) => (TEAMS[tla] && TEAMS[tla].name) || tla || '?';
+  const api = data.api_knockout_matches || [];
+  const db = data.db_assignments || [];
+
+  // Lo que dice la API (referencia)
+  let apiHtml = '<div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:6px;">📡 Lo que football-data.org devuelve para eliminatorias:</div>';
+  if (api.length === 0) {
+    apiHtml += '<div style="font-size:11px;color:#ffaa70;margin-bottom:10px;">La API todavía no publica cruces de eliminación (o no hay token).</div>';
+  } else {
+    apiHtml += '<div style="overflow-x:auto;margin-bottom:12px;"><table style="border-collapse:collapse;width:100%;font-size:11px;color:#fff;">'
+      + '<thead><tr style="background:rgba(255,255,255,0.06);"><th style="text-align:left;padding:5px 7px;">Fase</th><th style="text-align:left;padding:5px 7px;">Cruce</th><th style="text-align:left;padding:5px 7px;">Estado</th></tr></thead><tbody>'
+      + api.map(r => `<tr style="border-top:1px solid rgba(255,255,255,0.06);"><td style="padding:4px 7px;">${_escHtml(r.phase || r.stage_raw || '?')}</td><td style="padding:4px 7px;">${_escHtml(teamName(r.home_tla))} vs ${_escHtml(teamName(r.away_tla))}</td><td style="padding:4px 7px;opacity:0.7;">${_escHtml(r.status || '')}</td></tr>`).join('')
+      + '</tbody></table></div>';
+  }
+
+  // Slots de eliminación editables (a partir del FIXTURE local, por fase)
+  const dbById = {};
+  db.forEach(r => { dbById[r.match_id] = r; });
+  const phases = [
+    { key: 'dieciseisavos', label: '16vos' },
+    { key: 'octavos', label: 'Octavos' },
+    { key: 'cuartos', label: 'Cuartos' },
+    { key: 'semis', label: 'Semis' },
+    { key: 'tercerpuesto', label: '3er Puesto' },
+    { key: 'final', label: 'Final' },
+  ];
+  const teamList = Object.keys(TEAMS).sort((a, b) => TEAMS[a].name.localeCompare(TEAMS[b].name));
+  const teamOpts = (sel) => '<option value="">—</option>' + teamList.map(c => `<option value="${c}" ${sel === c ? 'selected' : ''}>${TEAMS[c].name}</option>`).join('');
+
+  let editHtml = '<div style="font-size:11px;color:rgba(255,255,255,0.6);margin:6px 0;">✏️ Asignar/corregir a mano (queda fijo, el sync no lo pisa):</div>';
+  for (const ph of phases) {
+    const slots = FIXTURE.filter(m => m.phase === ph.key).sort((a, b) => (a.id.length - b.id.length) || a.id.localeCompare(b.id));
+    if (slots.length === 0) continue;
+    editHtml += `<div style="font-weight:800;color:#c9a0ff;font-size:12px;margin:10px 0 4px;">${ph.label}</div>`;
+    for (const m of slots) {
+      const row = dbById[m.id];
+      const h = row ? row.home_tla : '';
+      const a = row ? row.away_tla : '';
+      const dt = row && row.datetime_utc ? row.datetime_utc : (m.datetime_utc || '');
+      const src = row ? row.source : '';
+      // datetime-local necesita 'YYYY-MM-DDTHH:MM' en ART; convertimos desde UTC
+      let dtLocal = '';
+      if (dt) { try { const d = new Date(dt.replace('Z','+00:00')); dtLocal = new Date(d.getTime() - 3*3600*1000).toISOString().slice(0,16); } catch(e){} }
+      editHtml += `<div class="kn-row" data-kn-id="${m.id}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;padding:6px;border:1px solid rgba(255,255,255,0.08);border-radius:8px;">
+        <span style="font-family:monospace;opacity:0.6;font-size:10px;width:34px;">${m.id}</span>
+        <select data-kn-home style="padding:4px;border-radius:6px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.15);font-size:11px;">${teamOpts(h)}</select>
+        <span style="font-size:10px;opacity:0.6;">vs</span>
+        <select data-kn-away style="padding:4px;border-radius:6px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.15);font-size:11px;">${teamOpts(a)}</select>
+        <input data-kn-dt type="datetime-local" value="${dtLocal}" style="padding:4px;border-radius:6px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.15);font-size:11px;">
+        <button class="btn-save" data-kn-save style="padding:4px 10px;font-size:11px;">Guardar</button>
+        ${src ? `<span style="font-size:9px;opacity:0.55;">${src}</span>` : ''}
+      </div>`;
+    }
+  }
+
+  panel.innerHTML = apiHtml + editHtml;
+  panel.querySelectorAll('[data-kn-save]').forEach(btn => {
+    btn.onclick = () => {
+      const row = btn.closest('.kn-row');
+      saveKnockoutManual(
+        row.dataset.knId,
+        row.querySelector('[data-kn-home]').value,
+        row.querySelector('[data-kn-away]').value,
+        row.querySelector('[data-kn-dt]').value
+      );
+    };
+  });
+}
+
+async function saveKnockoutManual(matchId, home, away, dtLocal) {
+  if (!home || !away) { showToast('Elegí ambos equipos', 'error'); return; }
+  if (home === away) { showToast('Los equipos no pueden ser iguales', 'error'); return; }
+  if (!dtLocal) { showToast('Poné fecha y hora', 'error'); return; }
+  // dtLocal está en ART (UTC-3) → convertir a UTC ISO con Z
+  let dtUtc;
+  try {
+    const artMs = new Date(dtLocal + ':00-03:00').getTime();
+    dtUtc = new Date(artMs).toISOString().replace('.000Z', 'Z');
+  } catch (e) { showToast('Fecha inválida', 'error'); return; }
+  try {
+    await apiFetch(`/api/admin/knockout/${encodeURIComponent(matchId)}`, {
+      method: 'POST',
+      body: JSON.stringify({ home, away, datetime_utc: dtUtc, venue: null }),
+    });
+    showToast('Cruce asignado ✓');
+    await loadAppData();
+    renderContent();
+    setTimeout(loadKnockoutsPanel, 100);
+  } catch (e) {
+    showToast(e.message || 'No se pudo asignar', 'error');
+  }
 }
 
 function _renderScheduleAudit(data) {
