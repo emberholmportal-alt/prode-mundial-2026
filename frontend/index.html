@@ -807,16 +807,16 @@
   }
   .ver-sumatoria-btn {
     display: inline-flex; align-items: center; gap: 4px;
-    margin-left: 8px; padding: 3px 9px; border-radius: 12px;
-    background: rgba(255,138,76,0.14); color: #ffb98a;
-    border: 1px solid rgba(255,138,76,0.4);
+    margin-top: 6px; padding: 4px 10px; border-radius: 12px;
+    background: rgba(255,138,76,0.16); color: #ffb98a;
+    border: 1px solid rgba(255,138,76,0.45);
     font-family: inherit; font-size: 10.5px; font-weight: 700;
-    cursor: pointer; letter-spacing: 0.3px; vertical-align: middle;
+    cursor: pointer; letter-spacing: 0.3px;
     transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
   }
-  .ver-sumatoria-btn:hover { background: rgba(255,138,76,0.28); color: #fff; transform: translateY(-1px); }
+  .ver-sumatoria-btn:hover { background: rgba(255,138,76,0.3); color: #fff; transform: translateY(-1px); }
   .ver-sumatoria-btn:active { transform: translateY(0); }
-  .ver-sumatoria-btn.podium-sum { margin-left: 0; margin-top: 8px; font-size: 10px; padding: 4px 10px; }
+  .ver-sumatoria-btn.podium-sum { margin-top: 8px; font-size: 10px; padding: 4px 10px; }
   .ranking-sector {
     font-size: 10px;
     color: rgba(255,255,255,0.45);
@@ -3447,10 +3447,9 @@ function renderRanking() {
       listHtml += `<div class="ranking-row ${isMe ? 'me' : ''}">
         <div class="ranking-pos">#${i + 1}</div>
         <div class="ranking-user">
-          <div class="ranking-username">${u.display_name || u.username} ${isMe ? '👈' : ''}
-            <button class="ver-sumatoria-btn" type="button" data-user-detail="${u.username}">📊 Ver Sumatoria</button>
-          </div>
+          <div class="ranking-username">${u.display_name || u.username} ${isMe ? '👈' : ''}</div>
           <div class="ranking-sector">${u.predicted_count} pronósticos cargados</div>
+          <button class="ver-sumatoria-btn" type="button" data-user-detail="${u.username}">📊 Ver Sumatoria</button>
         </div>
         <div class="ranking-tags">${tags.join('')}</div>
         <div class="ranking-pts">${u.points}</div>
