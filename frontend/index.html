@@ -805,8 +805,18 @@
     font-weight: 600; font-size: 14px;
     line-height: 1.2;
   }
-  .ranking-detail-hint { font-size: 10px; opacity: 0.4; transition: opacity 0.15s; }
-  .ranking-row:hover .ranking-detail-hint { opacity: 0.9; }
+  .ver-sumatoria-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-left: 8px; padding: 3px 9px; border-radius: 12px;
+    background: rgba(255,138,76,0.14); color: #ffb98a;
+    border: 1px solid rgba(255,138,76,0.4);
+    font-family: inherit; font-size: 10.5px; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.3px; vertical-align: middle;
+    transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+  }
+  .ver-sumatoria-btn:hover { background: rgba(255,138,76,0.28); color: #fff; transform: translateY(-1px); }
+  .ver-sumatoria-btn:active { transform: translateY(0); }
+  .ver-sumatoria-btn.podium-sum { margin-left: 0; margin-top: 8px; font-size: 10px; padding: 4px 10px; }
   .ranking-sector {
     font-size: 10px;
     color: rgba(255,255,255,0.45);
@@ -1172,6 +1182,16 @@
   .comment-card {
     background: rgba(255,255,255,0.04); border-radius: 10px; padding: 10px 12px;
     border: 1px solid rgba(255,255,255,0.06);
+  }
+  .comment-card.admin-comment {
+    background: rgba(0, 200, 83, 0.08);
+    border: 1.5px solid rgba(0, 200, 83, 0.55);
+    box-shadow: 0 0 0 1px rgba(0,200,83,0.12) inset;
+  }
+  .comment-admin-badge {
+    display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+    padding: 2px 6px; border-radius: 5px;
+    background: rgba(0,200,83,0.2); color: #7bf5a8; border: 1px solid rgba(0,200,83,0.45);
   }
   .comment-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
   .comment-name { font-weight: 800; font-size: 13px; color: #fff; }
@@ -3399,11 +3419,12 @@ function renderRanking() {
       const u = podio[idx[i]];
       if (!u) podioHtml += `<div class="podium-spot ${order[i]}"></div>`;
       else {
-        podioHtml += `<div class="podium-spot ${order[i]}" data-user-detail="${u.username}" title="Ver detalle de pronósticos">
+        podioHtml += `<div class="podium-spot ${order[i]}">
           <span class="podium-medal">${medals[i]}</span>
           <div class="podium-name">${u.display_name || u.username}</div>
           <div class="podium-points">${u.points}</div>
           <div class="podium-cat">${u.correct_exact} exactos · ${u.correct_result} resultado</div>
+          <button class="ver-sumatoria-btn podium-sum" type="button" data-user-detail="${u.username}">📊 Ver Sumatoria</button>
         </div>`;
       }
     }
@@ -3423,10 +3444,12 @@ function renderRanking() {
         companyTag(u.company),
         cityTag(u.city)
       ].filter(Boolean);
-      listHtml += `<div class="ranking-row ${isMe ? 'me' : ''}" data-user-detail="${u.username}" title="Ver detalle de pronósticos">
+      listHtml += `<div class="ranking-row ${isMe ? 'me' : ''}">
         <div class="ranking-pos">#${i + 1}</div>
         <div class="ranking-user">
-          <div class="ranking-username">${u.display_name || u.username} ${isMe ? '👈' : ''} <span class="ranking-detail-hint">🔍</span></div>
+          <div class="ranking-username">${u.display_name || u.username} ${isMe ? '👈' : ''}
+            <button class="ver-sumatoria-btn" type="button" data-user-detail="${u.username}">📊 Ver Sumatoria</button>
+          </div>
           <div class="ranking-sector">${u.predicted_count} pronósticos cargados</div>
         </div>
         <div class="ranking-tags">${tags.join('')}</div>
@@ -4789,9 +4812,11 @@ function _commentsListHTML() {
           </div>
         </form>`;
     } else {
+      const adminBadge = c.is_admin ? '<span class="comment-admin-badge">⭐ ADMIN</span>' : '';
       inner = `
         <div class="comment-head">
           <span class="comment-name">${c.display_name || c.username}</span>
+          ${adminBadge}
           ${tags}
           <span class="comment-meta">${when}${editedBadge}</span>
           ${actions}
@@ -4811,7 +4836,7 @@ function _commentsListHTML() {
 
     const children = (byParent[c.id] || []).map(child => renderOne(child, depth + 1)).join('');
 
-    return `<div class="comment-card ${isEditing ? 'editing' : ''} ${depthClass}" data-comment-card="${c.id}">
+    return `<div class="comment-card ${isEditing ? 'editing' : ''} ${c.is_admin ? 'admin-comment' : ''} ${depthClass}" data-comment-card="${c.id}">
       ${inner}
       ${replyFormHtml}
       ${children}
