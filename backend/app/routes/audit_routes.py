@@ -183,8 +183,8 @@ def audit_user_detail(username: str, request: Request, db: Session = Depends(get
             "points": pts,
         })
 
-    # Orden cronológico por kickoff.
-    rows.sort(key=lambda r: r.get("kickoff_utc") or "")
+    # Orden: último partido jugado primero (kickoff descendente).
+    rows.sort(key=lambda r: r.get("kickoff_utc") or "", reverse=True)
 
     return {
         "username": user.username,
