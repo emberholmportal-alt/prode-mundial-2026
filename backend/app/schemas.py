@@ -182,6 +182,7 @@ class CommentOut(BaseModel):
     is_admin: bool = False
     body: str
     parent_id: Optional[int] = None
+    highlighted: bool = False
     likes_count: int = 0
     liked_by_me: bool = False
     created_at: datetime

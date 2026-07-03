@@ -1216,6 +1216,7 @@
     font-size: 12px; line-height: 1.1;
   }
   .comment-action-btn:hover { background: rgba(255,138,76,0.15); border-color: rgba(255,138,76,0.4); }
+  .comment-action-btn.hl-on { background: rgba(0,200,83,0.22); border-color: rgba(0,200,83,0.55); }
   .comment-edit-form { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
   .comment-edit-input {
     width: 100%; resize: vertical; padding: 8px 10px; border-radius: 8px;
@@ -3424,7 +3425,6 @@ function renderRanking() {
           <div class="podium-name">${u.display_name || u.username}</div>
           <div class="podium-points">${u.points}</div>
           <div class="podium-cat">${u.correct_exact} exactos · ${u.correct_result} resultado</div>
-          <button class="ver-sumatoria-btn podium-sum" type="button" data-user-detail="${u.username}">📊 Ver Sumatoria</button>
         </div>`;
       }
     }
@@ -4779,10 +4779,15 @@ function _commentsListHTML() {
     ].filter(Boolean).join(' ');
     const safe = _escHtml(c.body);
     const isMine = cu && (c.username === cu.username);
-    const canModify = isMine || (cu && cu.is_admin);
+    const isAdminViewer = cu && cu.is_admin;
+    const canModify = isMine || isAdminViewer;
     const editedBadge = c.updated_at ? '<span class="comment-edited" title="Comentario editado">· editado</span>' : '';
+    const highlightBtn = isAdminViewer
+      ? `<button class="comment-action-btn ${c.highlighted ? 'hl-on' : ''}" type="button" data-comment-highlight="${c.id}" title="${c.highlighted ? 'Quitar destacado' : 'Destacar (verde)'}">${c.highlighted ? '✅' : '📌'}</button>`
+      : '';
     const actions = canModify ? `
       <div class="comment-actions">
+        ${highlightBtn}
         <button class="comment-action-btn" type="button" data-comment-edit="${c.id}" title="Editar">✏️</button>
         <button class="comment-action-btn" type="button" data-comment-delete="${c.id}" title="Borrar">🗑️</button>
       </div>` : '';
@@ -4811,11 +4816,11 @@ function _commentsListHTML() {
           </div>
         </form>`;
     } else {
-      const adminBadge = c.is_admin ? '<span class="comment-admin-badge">⭐ ADMIN</span>' : '';
+      const hlBadge = c.highlighted ? '<span class="comment-admin-badge">📌 IMPORTANTE</span>' : '';
       inner = `
         <div class="comment-head">
           <span class="comment-name">${c.display_name || c.username}</span>
-          ${adminBadge}
+          ${hlBadge}
           ${tags}
           <span class="comment-meta">${when}${editedBadge}</span>
           ${actions}
@@ -4835,7 +4840,7 @@ function _commentsListHTML() {
 
     const children = (byParent[c.id] || []).map(child => renderOne(child, depth + 1)).join('');
 
-    return `<div class="comment-card ${isEditing ? 'editing' : ''} ${c.is_admin ? 'admin-comment' : ''} ${depthClass}" data-comment-card="${c.id}">
+    return `<div class="comment-card ${isEditing ? 'editing' : ''} ${c.highlighted ? 'admin-comment' : ''} ${depthClass}" data-comment-card="${c.id}">
       ${inner}
       ${replyFormHtml}
       ${children}
@@ -4956,6 +4961,12 @@ function bindCommentsForms() {
         if (confirm('¿Borrar este comentario? Se borran también sus respuestas. No se puede deshacer.')) deleteComment(id);
         return;
       }
+      const hl = e.target.closest('[data-comment-highlight]');
+      if (hl) {
+        const id = parseInt(hl.dataset.commentHighlight, 10);
+        toggleCommentHighlight(id);
+        return;
+      }
       const lk = e.target.closest('[data-comment-like]');
       if (lk) {
         const id = parseInt(lk.dataset.commentLike, 10);
@@ -5023,6 +5034,24 @@ async function toggleCommentLike(id) {
     c.likes_count = Math.max(0, (c.likes_count || 0) + (wasLiked ? 1 : -1));
     renderCommentsList();
     showToast(e.message || 'No se pudo registrar el like', 'error');
+  }
+}
+
+async function toggleCommentHighlight(id) {
+  const c = (state.comments || []).find(x => x.id === id);
+  if (!c) return;
+  const prev = !!c.highlighted;
+  c.highlighted = !prev; // optimista
+  renderCommentsList();
+  try {
+    const updated = await apiFetch(`/api/comments/${id}/highlight`, { method: 'POST' });
+    c.highlighted = !!updated.highlighted;
+    renderCommentsList();
+    showToast(c.highlighted ? 'Comentario destacado ✓' : 'Destacado quitado');
+  } catch (e) {
+    c.highlighted = prev; // revert
+    renderCommentsList();
+    showToast(e.message || 'No se pudo destacar', 'error');
   }
 }
 

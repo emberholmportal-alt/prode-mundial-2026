@@ -45,6 +45,7 @@ def _to_out(c: Comment, likes_count: int = 0, liked_by_me: bool = False) -> Comm
         is_admin=bool(c.user.is_admin),
         body=c.body,
         parent_id=c.parent_id,
+        highlighted=bool(c.highlighted),
         likes_count=likes_count,
         liked_by_me=liked_by_me,
         created_at=c.created_at,
@@ -168,6 +169,33 @@ def delete_comment(
     _check_can_modify(comment, user)
     db.delete(comment)  # cascade borra respuestas y likes
     db.commit()
+
+
+@router.post("/{comment_id}/highlight", response_model=CommentOut)
+@limiter.limit("60/minute")
+def toggle_highlight(
+    request: Request,
+    comment_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Marca/desmarca un comentario como destacado (recuadro verde). Solo admin."""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Solo un admin puede destacar comentarios")
+    comment = _load_with_user(db, comment_id)
+    if comment is None:
+        raise HTTPException(status_code=404, detail="Comentario no encontrado")
+    comment.highlighted = not bool(comment.highlighted)
+    db.commit()
+    db.refresh(comment)
+    cnt = db.scalar(
+        select(func.count(CommentLike.user_id)).where(CommentLike.comment_id == comment.id)
+    ) or 0
+    mine = db.scalar(
+        select(CommentLike.comment_id)
+        .where(CommentLike.comment_id == comment.id, CommentLike.user_id == user.id)
+    )
+    return _to_out(comment, int(cnt), mine is not None)
 
 
 @router.post("/{comment_id}/like", status_code=204)
