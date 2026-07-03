@@ -42,6 +42,7 @@ def _to_out(c: Comment, likes_count: int = 0, liked_by_me: bool = False) -> Comm
         sector=c.user.sector,
         company=c.user.company,
         city=c.user.city,
+        is_admin=bool(c.user.is_admin),
         body=c.body,
         parent_id=c.parent_id,
         likes_count=likes_count,

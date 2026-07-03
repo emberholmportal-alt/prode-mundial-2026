@@ -1183,6 +1183,16 @@
     background: rgba(255,255,255,0.04); border-radius: 10px; padding: 10px 12px;
     border: 1px solid rgba(255,255,255,0.06);
   }
+  .comment-card.admin-comment {
+    background: rgba(0, 200, 83, 0.08);
+    border: 1.5px solid rgba(0, 200, 83, 0.55);
+    box-shadow: 0 0 0 1px rgba(0,200,83,0.12) inset;
+  }
+  .comment-admin-badge {
+    display: inline-block; font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+    padding: 2px 6px; border-radius: 5px;
+    background: rgba(0,200,83,0.2); color: #7bf5a8; border: 1px solid rgba(0,200,83,0.45);
+  }
   .comment-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
   .comment-name { font-weight: 800; font-size: 13px; color: #fff; }
   .comment-meta { font-size: 10px; color: rgba(255,255,255,0.45); margin-left: auto; }
@@ -4802,9 +4812,11 @@ function _commentsListHTML() {
           </div>
         </form>`;
     } else {
+      const adminBadge = c.is_admin ? '<span class="comment-admin-badge">⭐ ADMIN</span>' : '';
       inner = `
         <div class="comment-head">
           <span class="comment-name">${c.display_name || c.username}</span>
+          ${adminBadge}
           ${tags}
           <span class="comment-meta">${when}${editedBadge}</span>
           ${actions}
@@ -4824,7 +4836,7 @@ function _commentsListHTML() {
 
     const children = (byParent[c.id] || []).map(child => renderOne(child, depth + 1)).join('');
 
-    return `<div class="comment-card ${isEditing ? 'editing' : ''} ${depthClass}" data-comment-card="${c.id}">
+    return `<div class="comment-card ${isEditing ? 'editing' : ''} ${c.is_admin ? 'admin-comment' : ''} ${depthClass}" data-comment-card="${c.id}">
       ${inner}
       ${replyFormHtml}
       ${children}

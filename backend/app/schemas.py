@@ -179,6 +179,7 @@ class CommentOut(BaseModel):
     sector: str
     company: str
     city: str
+    is_admin: bool = False
     body: str
     parent_id: Optional[int] = None
     likes_count: int = 0
