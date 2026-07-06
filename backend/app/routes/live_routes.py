@@ -168,9 +168,15 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
                 continue
             # 1) Match exacto (local, visitante, kickoff).
             match_id = lookup.get((home_tla, away_tla, kickoff)) if kickoff else None
-            # 2) Fallback: match por par de equipos (único en todo el torneo).
-            #    Cubre el caso de que FIFA haya movido el horario respecto al
-            #    que tenemos cargado. Antes esto solo se reportaba, ahora carga.
+            # 2) Fallback por par de equipos (único en el torneo). Cubre que
+            #    FIFA haya movido el horario respecto al que tenemos cargado.
+            # 3) Fallback por par INVERTIDO: football-data a veces publica el
+            #    partido con el local/visitante al revés de nuestro slot. En ese
+            #    caso cargamos el resultado con los goles DADOS VUELTA, para que
+            #    quede en la orientación de nuestro slot (así los pronósticos ya
+            #    cargados siguen alineados). El penalty_winner es un TLA de
+            #    equipo, no se invierte.
+            swap = False
             if match_id is None:
                 by_pair = [mid for (h, a, _ko), mid in lookup.items()
                            if h == home_tla and a == away_tla]
@@ -179,19 +185,27 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
                     out.setdefault("matched_by_tla", 0)
                     out["matched_by_tla"] += 1
                 else:
-                    out["unmatched"].append({**base_info, "reason": "TLAs no matchean FIXTURE"})
-                    continue
+                    by_pair_rev = [mid for (h, a, _ko), mid in lookup.items()
+                                   if h == away_tla and a == home_tla]
+                    if by_pair_rev:
+                        match_id = by_pair_rev[0]
+                        swap = True
+                        out.setdefault("matched_by_tla_reversed", 0)
+                        out["matched_by_tla_reversed"] += 1
+                    else:
+                        out["unmatched"].append({**base_info, "reason": "TLAs no matchean FIXTURE"})
+                        continue
+            new_home = int(as_) if swap else int(hs)
+            new_away = int(hs) if swap else int(as_)
             existing = db.get(OfficialResult, match_id)
             if existing is not None:
-                # Si la fila auto está, pero el remoto cambió (típicamente porque
-                # ahora hay un penalty_winner que antes no estaba), actualizamos.
                 if existing.auto_loaded and (
-                    existing.home_score != int(hs)
-                    or existing.away_score != int(as_)
+                    existing.home_score != new_home
+                    or existing.away_score != new_away
                     or (existing.penalty_winner or None) != pw_remote
                 ):
-                    existing.home_score = int(hs)
-                    existing.away_score = int(as_)
+                    existing.home_score = new_home
+                    existing.away_score = new_away
                     existing.penalty_winner = pw_remote
                     out["synced"] += 1
                 else:
@@ -199,8 +213,8 @@ def _sync_with_diagnostics(db: Session, remote_matches: list[dict]) -> dict:
                 continue
             db.add(OfficialResult(
                 match_id=match_id,
-                home_score=int(hs),
-                away_score=int(as_),
+                home_score=new_home,
+                away_score=new_away,
                 penalty_winner=pw_remote,
                 auto_loaded=True,
             ))
@@ -513,24 +527,31 @@ def auto_assign_knockouts(db: Session, remote_matches: Optional[list[dict]]) -> 
 
     affected = 0
     try:
+        # Clave canónica del cruce = par SIN orden (frozenset). Así (RSA,CAN) y
+        # (CAN,RSA) son el mismo cruce: no damos vuelta el local/visitante de un
+        # slot ya asignado (mantener la orientación protege los pronósticos ya
+        # cargados). Solo actualizamos kickoff/venue de un slot existente.
+        def _canon(h, a):
+            return frozenset((h, a))
+
         for phase, our_slots in our_by_phase.items():
             slot_ids = [s["id"] for s in our_slots]
             desired = []
             seen = set()
             for d in remote_by_phase.get(phase, []):
-                pair = (d["home"], d["away"])
-                if pair in seen:
+                c = _canon(d["home"], d["away"])
+                if c in seen:
                     continue
-                seen.add(pair)
+                seen.add(c)
                 desired.append(d)
-            desired_pairs = {(d["home"], d["away"]) for d in desired}
+            desired_canon = {_canon(d["home"], d["away"]) for d in desired}
 
             existing_rows = {sid: db.get(KnockoutMatch, sid) for sid in slot_ids}
-            manual_pairs = {
-                (r.home_tla, r.away_tla)
+            manual_canon = {
+                _canon(r.home_tla, r.away_tla)
                 for r in existing_rows.values() if r and r.source == "manual"
             }
-            pair_to_slot: dict[tuple, str] = {}
+            canon_to_slot: dict[frozenset, str] = {}
             free_slots: list[str] = []
             for sid in slot_ids:
                 r = existing_rows[sid]
@@ -539,22 +560,24 @@ def auto_assign_knockouts(db: Session, remote_matches: Optional[list[dict]]) -> 
                     continue
                 if r.source == "manual":
                     continue  # bloqueado, ocupa su slot
-                pair = (r.home_tla, r.away_tla)
-                # Conservar la PRIMera aparición de cada par deseado; cualquier
-                # otra fila (par obsoleto o par duplicado) se borra y libera slot.
-                if pair in desired_pairs and pair not in pair_to_slot:
-                    pair_to_slot[pair] = sid
+                c = _canon(r.home_tla, r.away_tla)
+                # Conservar la primera aparición de cada cruce deseado (sin
+                # importar el orden). Filas obsoletas/duplicadas se borran.
+                if c in desired_canon and c not in canon_to_slot:
+                    canon_to_slot[c] = sid
                 else:
                     db.delete(r)
                     affected += 1
                     free_slots.append(sid)
 
             for d in desired:
-                pair = (d["home"], d["away"])
-                if pair in manual_pairs:
+                c = _canon(d["home"], d["away"])
+                if c in manual_canon:
                     continue  # el admin ya lo fijó a mano
-                if pair in pair_to_slot:
-                    r = existing_rows[pair_to_slot[pair]]
+                if c in canon_to_slot:
+                    # Ya existe el cruce: NO tocar home/away (preservar
+                    # orientación). Solo actualizar kickoff/venue.
+                    r = existing_rows[canon_to_slot[c]]
                     if r.datetime_utc != d["kickoff"] or (d["venue"] and r.venue != d["venue"]):
                         r.datetime_utc = d["kickoff"]
                         if d["venue"]:
