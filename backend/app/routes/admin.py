@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from ..auth import get_current_admin
 from ..database import get_db
 from ..deadlines import get_match_kickoff_utc
-from ..fixtures import FIXTURE_BY_ID, TEAMS
+from ..fixtures import FIXTURE, FIXTURE_BY_ID, TEAMS, apply_knockout_overrides
 from ..limiter import limiter
 from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
 from .live_routes import (
@@ -265,6 +265,65 @@ def set_knockout(
         return set_knockout_manual(db, match_id, h, a, payload.datetime_utc, payload.venue)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/knockout-predictions-check")
+@limiter.limit("20/minute")
+def knockout_predictions_check(request: Request, db: Session = Depends(get_db)):
+    """Diagnóstico: por cada slot de eliminación, muestra los equipos que tiene
+    HOY y cuántos pronósticos hay cargados. Marca 'stranded=True' los slots que
+    tienen pronósticos pero están sin equipos (TBD) — ahí es donde un pronóstico
+    puede quedar oculto en la UI aunque la fila siga en la base.
+
+    Sirve para confirmar que NINGÚN pronóstico se borró (solo pueden quedar
+    desalineados si el slot cambió de equipos)."""
+    apply_knockout_overrides(db)
+
+    # Conteo de pronósticos por match_id (solo slots de eliminación)
+    ko_ids = [m["id"] for m in FIXTURE if m.get("phase") != "grupos"]
+    rows_count = db.execute(
+        select(Prediction.match_id, func.count(Prediction.id))
+        .where(Prediction.match_id.in_(ko_ids))
+        .group_by(Prediction.match_id)
+    ).all()
+    count_by_id = {mid: int(n) for mid, n in rows_count}
+
+    out = []
+    total_preds = 0
+    stranded_total = 0
+    for m in FIXTURE:
+        if m.get("phase") == "grupos":
+            continue
+        h = (m.get("home") or "").upper()
+        a = (m.get("away") or "").upper()
+        is_tbd = (h == "TBD" or a == "TBD" or not h or not a)
+        cnt = count_by_id.get(m["id"], 0)
+        total_preds += cnt
+        stranded = cnt > 0 and is_tbd
+        if stranded:
+            stranded_total += cnt
+        if cnt > 0 or not is_tbd:
+            out.append({
+                "match_id": m["id"],
+                "phase": m.get("phase"),
+                "home": None if is_tbd else h,
+                "away": None if is_tbd else a,
+                "is_tbd": is_tbd,
+                "predictions_count": cnt,
+                "stranded": stranded,
+            })
+    out.sort(key=lambda r: (0 if r["stranded"] else 1, r["match_id"]))
+    return {
+        "total_predictions_en_eliminacion": total_preds,
+        "stranded_predictions": stranded_total,
+        "note": (
+            "Ningún pronóstico se borra de la base. 'stranded' = pronósticos "
+            "en un slot que hoy está sin equipos (quedan ocultos en la UI). Si "
+            "stranded_predictions es 0, todos los pronósticos de eliminación "
+            "están visibles en su slot."
+        ),
+        "slots": out,
+    }
 
 
 @router.get("/stats", response_model=AdminStats)

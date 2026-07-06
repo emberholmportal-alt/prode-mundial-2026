@@ -3737,6 +3737,7 @@ function renderAdmin() {
       <button class="btn-save" id="btnResultsAudit" style="background:rgba(255,182,76,0.18);border:1px solid rgba(255,182,76,0.55);">🔎 Auditar resultados cargados</button>
       <button class="btn-save" id="btnScheduleAudit" style="background:rgba(120,180,255,0.18);border:1px solid rgba(120,180,255,0.55);">🕐 Verificar horarios</button>
       <button class="btn-save" id="btnKnockouts" style="background:rgba(180,120,255,0.18);border:1px solid rgba(180,120,255,0.55);">🔧 Cruces de eliminación</button>
+      <button class="btn-save" id="btnKoPredsCheck" style="background:rgba(255,120,120,0.18);border:1px solid rgba(255,120,120,0.55);">🔎 Chequear pronósticos octavos</button>
     </div>
     <pre id="syncOutput" style="display:none;margin-top:10px;padding:10px;background:rgba(0,0,0,0.4);border-radius:8px;font-size:11px;color:#d6e394;max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-word;"></pre>
     <div id="knockoutsPanel" style="display:none;margin-top:10px;"></div>
@@ -4184,6 +4185,46 @@ function bindContent() {
 
   const btnKnockouts = document.getElementById('btnKnockouts');
   if (btnKnockouts) btnKnockouts.onclick = () => loadKnockoutsPanel();
+
+  const btnKoPredsCheck = document.getElementById('btnKoPredsCheck');
+  if (btnKoPredsCheck) btnKoPredsCheck.onclick = async () => {
+    if (!syncOut) return;
+    const reset = setButtonBusy(btnKoPredsCheck.id, 'Chequeando…');
+    syncOut.style.display = 'block';
+    syncOut.textContent = 'Revisando pronósticos de eliminación…';
+    try {
+      const data = await apiFetch('/api/admin/knockout-predictions-check', { method: 'GET' });
+      const teamName = (tla) => (TEAMS[tla] && TEAMS[tla].name) || tla || '?';
+      const rowsHtml = (data.slots || []).map(s => {
+        const cruce = s.is_tbd ? '<span style="color:#ffaa70;">Por definir (TBD)</span>' : `${_escHtml(teamName(s.home))} vs ${_escHtml(teamName(s.away))}`;
+        const flag = s.stranded ? '<span style="color:#ff6b6b;font-weight:800;"> ⚠️ COLGADOS</span>' : '';
+        return `<tr style="border-top:1px solid rgba(255,255,255,0.06);">
+          <td style="padding:4px 7px;font-family:monospace;opacity:0.6;">${_escHtml(s.match_id)}</td>
+          <td style="padding:4px 7px;">${cruce}${flag}</td>
+          <td style="padding:4px 7px;text-align:center;font-weight:800;">${s.predictions_count}</td>
+        </tr>`;
+      }).join('');
+      syncOut.innerHTML =
+        `<div style="font-size:12px;color:#fff;margin-bottom:8px;">
+          Pronósticos en eliminación: <strong>${data.total_predictions_en_eliminacion}</strong> ·
+          <span style="color:${data.stranded_predictions > 0 ? '#ff6b6b' : '#7bd97b'};">colgados (en slots sin equipos): <strong>${data.stranded_predictions}</strong></span>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-bottom:8px;">${_escHtml(data.note)}</div>
+        <div style="overflow-x:auto;"><table style="border-collapse:collapse;width:100%;font-size:11px;color:#fff;">
+          <thead><tr style="background:rgba(255,255,255,0.06);"><th style="text-align:left;padding:5px 7px;">Slot</th><th style="text-align:left;padding:5px 7px;">Cruce actual</th><th style="text-align:center;padding:5px 7px;">Pronósticos</th></tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table></div>`;
+      const msg = data.stranded_predictions > 0
+        ? `⚠️ ${data.stranded_predictions} pronósticos colgados en slots sin equipos`
+        : 'Todos los pronósticos de eliminación están visibles ✓';
+      showToast(msg, data.stranded_predictions > 0 ? 'error' : 'success');
+    } catch (e) {
+      syncOut.textContent = 'Error: ' + (e.message || e);
+      showToast('No se pudo chequear', 'error');
+    } finally {
+      if (reset) reset();
+    }
+  };
 }
 
 async function loadKnockoutsPanel() {
