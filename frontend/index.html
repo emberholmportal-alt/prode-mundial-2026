@@ -1527,6 +1527,9 @@
     transition: transform 0.38s cubic-bezier(0.2,0.8,0.2,1), opacity 0.32s ease;
   }
   .promo-modal-overlay.visible .promo-modal-card { transform: scale(1) translateY(0); opacity: 1; }
+  /* Día especial (Fabio/Carrefour): tarjeta más ancha y fondo blanco */
+  .promo-modal-card.promo-special { width: 440px; max-width: 94vw; background: #fff; }
+  .promo-modal-card.promo-special .promo-modal-img { transition: opacity 0.25s ease; }
   .promo-special-text {
     padding: 14px 16px 10px; text-align: center;
     font-weight: 800; font-size: 14px; line-height: 1.35; color: #0a3d91;
@@ -5545,12 +5548,23 @@ function showPromoModal() {
   const specialText = document.getElementById('promoSpecialText');
   const img = document.getElementById('promoModalImg');
   const fallback = document.getElementById('promoModalFallback');
+  const card = overlay.querySelector('.promo-modal-card');
   if (esEspecial) {
+    if (card) card.classList.add('promo-special');
     if (specialText) specialText.style.display = 'block';
-    if (img) { img.src = '/assets/fabio.jpg'; img.alt = 'Felices 40 años Fabio · Carrefour'; }
     if (fallback) fallback.innerHTML = 'FELICES 40 AÑOS<small>FABIO · CARREFOUR</small>';
     // Ocultar los botones de Viva la Vida (hoy no es su publicidad)
     document.querySelectorAll('.promo-cta-vlv').forEach(el => { el.style.display = 'none'; });
+    // Evitar el "flash" de la imagen de Viva la Vida: la ocultamos hasta que
+    // cargue la de Fabio, y recién ahí la mostramos.
+    if (img) {
+      img.alt = 'Felices 40 años Fabio · Carrefour';
+      img.style.opacity = '0';
+      const reveal = () => { img.style.opacity = '1'; };
+      img.onload = reveal;
+      img.src = '/assets/fabio.jpg';
+      if (img.complete && img.naturalWidth > 0) reveal();
+    }
   }
 
   overlay.hidden = false;
