@@ -1527,6 +1527,11 @@
     transition: transform 0.38s cubic-bezier(0.2,0.8,0.2,1), opacity 0.32s ease;
   }
   .promo-modal-overlay.visible .promo-modal-card { transform: scale(1) translateY(0); opacity: 1; }
+  .promo-special-text {
+    padding: 14px 16px 10px; text-align: center;
+    font-weight: 800; font-size: 14px; line-height: 1.35; color: #0a3d91;
+    background: #fff;
+  }
   .promo-modal-img { display: block; width: 100%; height: auto; user-select: none; }
   .promo-modal-fallback {
     display: none; padding: 36px 20px; text-align: center;
@@ -1727,15 +1732,16 @@
 <div id="promoModal" class="promo-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="promoModalTitle" aria-hidden="true" hidden>
   <div class="promo-modal-card">
     <button id="promoModalClose" class="promo-modal-close" type="button" aria-label="Cerrar publicidad">✕</button>
-    <img class="promo-modal-img" src="/assets/vivalavida.png" alt="Viva la Vida Indumentaria" id="promoModalTitle">
-    <div class="promo-modal-fallback">VIVA LA VIDA<small>INDUMENTARIA</small></div>
-    <a class="promo-modal-cta" href="https://www.instagram.com/mayoristas.somosind.vivalavida?igsh=bml1MGpyZDI3eG5w" target="_blank" rel="noopener noreferrer" aria-label="Acceder al perfil de Instagram de Viva la Vida">
+    <div class="promo-special-text" id="promoSpecialText" style="display:none;">De parte de la administración del prode nos sumamos a las felicitaciones! 🎉</div>
+    <img class="promo-modal-img" src="/assets/vivalavida.png" alt="Viva la Vida Indumentaria" id="promoModalImg">
+    <div class="promo-modal-fallback" id="promoModalFallback">VIVA LA VIDA<small>INDUMENTARIA</small></div>
+    <a class="promo-modal-cta promo-cta-vlv" href="https://www.instagram.com/mayoristas.somosind.vivalavida?igsh=bml1MGpyZDI3eG5w" target="_blank" rel="noopener noreferrer" aria-label="Acceder al perfil de Instagram de Viva la Vida">
       <span class="promo-modal-cta-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
       </span>
       Acceder al perfil
     </a>
-    <a class="promo-modal-cta promo-modal-cta-wa" href="https://whatsapp.com/channel/0029Vb6H2xQA2pL2tWTI6V1r" target="_blank" rel="noopener noreferrer" aria-label="Unirse al canal de WhatsApp de Viva la Vida">
+    <a class="promo-modal-cta promo-modal-cta-wa promo-cta-vlv" href="https://whatsapp.com/channel/0029Vb6H2xQA2pL2tWTI6V1r" target="_blank" rel="noopener noreferrer" aria-label="Unirse al canal de WhatsApp de Viva la Vida">
       <span class="promo-modal-cta-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M17.6 6.32A7.85 7.85 0 0 0 12.05 4a7.94 7.94 0 0 0-6.9 11.9L4 20l4.2-1.1a7.93 7.93 0 0 0 3.84 1h.01A7.94 7.94 0 0 0 20 11.96a7.9 7.9 0 0 0-2.4-5.64zM12.05 18.55h-.01a6.6 6.6 0 0 1-3.36-.92l-.24-.14-2.49.65.66-2.43-.16-.25a6.6 6.6 0 1 1 12.27-3.5 6.6 6.6 0 0 1-6.67 6.59zm3.62-4.94c-.2-.1-1.18-.58-1.36-.65-.18-.07-.31-.1-.45.1-.13.2-.51.65-.62.78-.12.13-.23.15-.42.05-.2-.1-.84-.31-1.6-.99-.59-.53-.99-1.18-1.1-1.38-.12-.2-.01-.31.09-.41.09-.1.2-.23.3-.35.1-.12.13-.2.2-.33.07-.13.03-.25-.02-.35-.05-.1-.45-1.09-.62-1.49-.16-.39-.33-.34-.45-.34-.12 0-.25-.02-.39-.02a.75.75 0 0 0-.54.25c-.18.2-.7.69-.7 1.68 0 .99.72 1.95.82 2.08.1.13 1.4 2.13 3.39 2.98.47.2.84.32 1.13.41.47.15.9.13 1.24.08.38-.06 1.18-.48 1.34-.95.17-.47.17-.87.12-.95-.05-.08-.18-.13-.38-.23z"/></svg>
       </span>
@@ -4566,6 +4572,7 @@ function confetti(opts = {}) {
   const canvas = document.createElement('canvas');
   canvas.className = 'confetti-canvas';
   canvas.width = innerWidth; canvas.height = innerHeight;
+  if (opts.z) canvas.style.zIndex = String(opts.z); // pisar modales si hace falta
   document.body.appendChild(canvas);
   const ctx = canvas.getContext('2d');
   let colors;
@@ -5522,16 +5529,43 @@ document.addEventListener('click', (e) => {
 // MODAL PUBLICITARIO — aparece una vez por carga, después del splash
 // =================================================================
 let _promoShown = false;
+// Publicidad especial "solo por hoy": si _todayArtDate() coincide con esta
+// fecha (ART, YYYY-MM-DD), el modal muestra la imagen de Carrefour + el texto
+// de felicitación + papelitos. El resto de los días vuelve la de Viva la Vida.
+// Para desactivarla/cambiar el día, editá esta constante:
+const PROMO_ESPECIAL_FECHA = '2026-07-08';
+
 function showPromoModal() {
   if (_promoShown) return;
   const overlay = document.getElementById('promoModal');
   if (!overlay) return;
   _promoShown = true;
+
+  const esEspecial = (typeof _todayArtDate === 'function') && (_todayArtDate() === PROMO_ESPECIAL_FECHA);
+  const specialText = document.getElementById('promoSpecialText');
+  const img = document.getElementById('promoModalImg');
+  const fallback = document.getElementById('promoModalFallback');
+  if (esEspecial) {
+    if (specialText) specialText.style.display = 'block';
+    if (img) { img.src = '/assets/felices40-fabio.png'; img.alt = 'Felices 40 años Fabio · Carrefour'; }
+    if (fallback) fallback.innerHTML = 'FELICES 40 AÑOS<small>FABIO · CARREFOUR</small>';
+    // Ocultar los botones de Viva la Vida (hoy no es su publicidad)
+    document.querySelectorAll('.promo-cta-vlv').forEach(el => { el.style.display = 'none'; });
+  }
+
   overlay.hidden = false;
   overlay.setAttribute('aria-hidden', 'false');
   // Forzar reflow para que la transición CSS se dispare
   void overlay.offsetWidth;
   overlay.classList.add('visible');
+
+  if (esEspecial) {
+    // Papelitos rojo/blanco/azul (colores Carrefour), por encima del modal.
+    try {
+      confetti({ intensity: 'big', colors: ['#0055A4', '#EF3340', '#FFFFFF'], z: 10000 });
+      setTimeout(() => confetti({ intensity: 'big', colors: ['#0055A4', '#EF3340', '#FFFFFF'], z: 10000 }), 1200);
+    } catch (e) {}
+  }
 
   const closeBtn = document.getElementById('promoModalClose');
   function close() {
@@ -5546,7 +5580,6 @@ function showPromoModal() {
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }, { once: true });
   document.addEventListener('keydown', onKey);
   // Fallback si la imagen no carga
-  const img = overlay.querySelector('.promo-modal-img');
   if (img) img.addEventListener('error', () => img.classList.add('errored'), { once: true });
 }
 
