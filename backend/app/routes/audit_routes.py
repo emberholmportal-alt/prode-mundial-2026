@@ -15,7 +15,8 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..fixtures import FIXTURE_BY_ID, TEAMS, apply_knockout_overrides
 from ..limiter import limiter
-from ..models import OfficialResult, Prediction, User
+from ..models import FinalPick, OfficialFinal, OfficialResult, Prediction, User
+from ..scoring import CHAMPION_POINTS, RUNNER_UP_POINTS
 from .leaderboard import _calc_match_points
 
 router = APIRouter(prefix="/audit", tags=["audit"])
@@ -186,6 +187,37 @@ def audit_user_detail(username: str, request: Request, db: Session = Depends(get
     # Orden: último partido jugado primero (kickoff descendente).
     rows.sort(key=lambda r: r.get("kickoff_utc") or "", reverse=True)
 
+    # Bonus de Campeón / Subcampeón (solo si ya se cargó el resultado final oficial).
+    final_pick_detail = None
+    of = db.get(OfficialFinal, 1)
+    if of is not None and of.champion:
+        fp = db.scalar(select(FinalPick).where(FinalPick.user_id == user.id))
+        pick_champ = fp.champion if fp else None
+        pick_runner = fp.runner_up if fp else None
+        # Mismo criterio que calc_final_points (leaderboard): requiere los 4
+        # datos presentes; después evalúa campeón y subcampeón por separado.
+        both_present = bool(pick_champ and pick_runner and of.champion and of.runner_up)
+        champ_ok = both_present and pick_champ == of.champion
+        runner_ok = both_present and pick_runner == of.runner_up
+        champ_pts = CHAMPION_POINTS if champ_ok else 0
+        runner_pts = RUNNER_UP_POINTS if runner_ok else 0
+        total_points += champ_pts + runner_pts
+        final_pick_detail = {
+            "official_champion": of.champion,
+            "official_champion_name": _team_name(of.champion),
+            "official_runner_up": of.runner_up,
+            "official_runner_up_name": _team_name(of.runner_up),
+            "pick_champion": pick_champ,
+            "pick_champion_name": _team_name(pick_champ) if pick_champ else None,
+            "pick_runner_up": pick_runner,
+            "pick_runner_up_name": _team_name(pick_runner) if pick_runner else None,
+            "champion_ok": champ_ok,
+            "runner_up_ok": runner_ok,
+            "champion_points": champ_pts,
+            "runner_up_points": runner_pts,
+            "points": champ_pts + runner_pts,
+        }
+
     return {
         "username": user.username,
         "display_name": user.display_name,
@@ -194,5 +226,6 @@ def audit_user_detail(username: str, request: Request, db: Session = Depends(get
         "finished_matches": len(rows),
         "predicted_count": sum(1 for r in rows if r["prediction"] is not None),
         "total_points": total_points,
+        "final_pick_detail": final_pick_detail,
         "rows": rows,
     }

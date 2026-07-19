@@ -5316,8 +5316,37 @@ function _renderUserDetail(data) {
     </div>
     <div class="udetail-note">🔍 Solo se muestran partidos ya finalizados. Cada fila indica qué pronosticó, cómo salió, cuánto sumó y cuándo cargó ese pronóstico.</div>`;
 
+  // Bloque de Campeón / Subcampeón (bonus), si ya se cargó el resultado final.
+  let finalHtml = '';
+  const fp = data.final_pick_detail;
+  if (fp) {
+    const line = (label, pickName, okName, points, ok, maxPts) => {
+      const pickTxt = pickName ? _escHtml(pickName) : '<span class="udetail-nopred">no eligió</span>';
+      const ptsClass = points > 0 ? 'p3' : 'p0';
+      return `<tr>
+        <td style="padding:6px 8px;font-weight:700;">${label}</td>
+        <td style="padding:6px 8px;">${okName ? _escHtml(okName) : '—'}</td>
+        <td style="padding:6px 8px;">${pickTxt} ${ok ? '✅' : '❌'}</td>
+        <td class="udetail-pts ${ptsClass}" style="text-align:center;">+${points}</td>
+      </tr>`;
+    };
+    finalHtml = `
+      <div style="margin:6px 0 12px;">
+        <div style="font-size:12px;font-weight:800;color:#ffd0a8;letter-spacing:1px;margin-bottom:6px;">🏆 CAMPEÓN Y SUBCAMPEÓN <span style="color:#d6e394;">(+${fp.points})</span></div>
+        <div style="overflow-x:auto;"><table class="udetail-table">
+          <thead><tr>
+            <th></th><th style="text-align:left;">Oficial</th><th style="text-align:left;">Tu elección</th><th style="text-align:center;">Pts</th>
+          </tr></thead>
+          <tbody>
+            ${line('🥇 Campeón', fp.pick_champion_name, fp.official_champion_name, fp.champion_points, fp.champion_ok, 10)}
+            ${line('🥈 Subcampeón', fp.pick_runner_up_name, fp.official_runner_up_name, fp.runner_up_points, fp.runner_up_ok, 5)}
+          </tbody>
+        </table></div>
+      </div>`;
+  }
+
   if (rows.length === 0) {
-    return head + `<div style="padding:20px;text-align:center;color:rgba(255,255,255,0.5);">Todavía no hay partidos finalizados.</div>`;
+    return head + finalHtml + `<div style="padding:20px;text-align:center;color:rgba(255,255,255,0.5);">Todavía no hay partidos finalizados.</div>`;
   }
 
   const body = rows.map(r => {
@@ -5346,7 +5375,7 @@ function _renderUserDetail(data) {
     </tr>`;
   }).join('');
 
-  return head + `
+  return head + finalHtml + `
     <div style="overflow-x:auto;">
       <table class="udetail-table">
         <thead>
