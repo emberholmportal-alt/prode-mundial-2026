@@ -1572,6 +1572,47 @@
     .promo-modal-overlay, .promo-modal-card { transition: opacity 0.2s ease; }
     .promo-modal-card { transform: none; }
   }
+  /* Modal ganador del prode */
+  .winner-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.72);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9998; padding: 18px; box-sizing: border-box;
+    opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    backdrop-filter: blur(3px);
+  }
+  .winner-overlay.visible { opacity: 1; pointer-events: auto; }
+  .winner-card {
+    position: relative; width: 380px; max-width: 94vw;
+    background: linear-gradient(180deg, #2a2010 0%, #171008 100%);
+    border: 1.5px solid rgba(255,193,71,0.55);
+    border-radius: 18px; padding: 26px 22px 24px; text-align: center;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,193,71,0.15) inset;
+    transform: scale(0.9); opacity: 0;
+    transition: transform 0.4s cubic-bezier(0.2,0.9,0.3,1.2), opacity 0.3s ease;
+  }
+  .winner-overlay.visible .winner-card { transform: scale(1); opacity: 1; }
+  .winner-close {
+    position: absolute; top: 10px; right: 10px; width: 30px; height: 30px;
+    border-radius: 50%; background: rgba(255,255,255,0.08); color: #fff;
+    border: 1px solid rgba(255,255,255,0.15); font-size: 15px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .winner-close:hover { background: rgba(255,193,71,0.25); border-color: rgba(255,193,71,0.5); }
+  .winner-trophy { font-size: 60px; line-height: 1; margin-bottom: 6px; animation: winnerBounce 1.6s ease-in-out infinite; }
+  @keyframes winnerBounce { 0%,100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-8px) rotate(4deg); } }
+  .winner-kicker { font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #ffd479; font-weight: 800; }
+  .winner-name { font-family: 'Anton', sans-serif; font-size: 30px; line-height: 1.05; color: #fff; margin: 8px 0 2px; letter-spacing: 0.5px; }
+  .winner-tags { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin: 6px 0 14px; }
+  .winner-points { font-family: 'Anton', sans-serif; font-size: 54px; line-height: 1; color: #ffc147; }
+  .winner-points-label { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-top: -2px; }
+  .winner-substats { font-size: 12.5px; color: rgba(255,255,255,0.8); margin-top: 12px; }
+  .winner-you { margin-top: 14px; padding: 9px 12px; border-radius: 10px; background: rgba(255,193,71,0.14); border: 1px solid rgba(255,193,71,0.4); color: #ffe3ab; font-weight: 800; font-size: 13px; }
+  .winner-generic { margin-top: 14px; font-size: 12.5px; color: rgba(255,255,255,0.7); }
+  @media (prefers-reduced-motion: reduce) {
+    .winner-trophy { animation: none; }
+    .winner-overlay, .winner-card { transition: opacity 0.2s ease; }
+    .winner-card { transform: none; }
+  }
   /* Botón toggle de música — al lado del nombre de usuario */
   .audio-toggle-btn {
     display: inline-flex; align-items: center; justify-content: center;
@@ -1750,6 +1791,13 @@
       </span>
       Unirse al canal de WhatsApp
     </a>
+  </div>
+</div>
+
+<div id="winnerModal" class="winner-overlay" role="dialog" aria-modal="true" aria-label="Ganador del prode" hidden>
+  <div class="winner-card">
+    <button id="winnerModalClose" class="winner-close" type="button" aria-label="Cerrar">✕</button>
+    <div id="winnerBody"></div>
   </div>
 </div>
 
@@ -2813,6 +2861,7 @@ async function bindApp() {
     state.comments = [];
     state.live = null;
     _promoShown = false; // permite que la publicidad reaparezca tras un nuevo login en la misma pestaña
+    _winnerShown = false; // idem para el modal del ganador
     render();
   };
   document.querySelectorAll('.tab').forEach(t => {
@@ -5567,6 +5616,56 @@ let _promoShown = false;
 // Para desactivarla/cambiar el día, editá esta constante:
 const PROMO_ESPECIAL_FECHA = '2026-07-08';
 
+let _winnerShown = false;
+function showWinnerModal() {
+  if (_winnerShown) return;
+  const overlay = document.getElementById('winnerModal');
+  const body = document.getElementById('winnerBody');
+  if (!overlay || !body) return;
+  const lb = state.cache.leaderboard || [];
+  if (lb.length === 0) return; // sin ranking todavía, no mostramos nada
+  _winnerShown = true;
+
+  const w = lb[0];
+  const me = state.currentUser && state.currentUser.username;
+  const soyYo = me && w.username === me;
+  const tags = [companyTag(w.company), cityTag(w.city)].filter(Boolean).join(' ');
+  const extra = soyYo
+    ? `<div class="winner-you">🎉 ¡SOS EL CAMPEÓN DEL PRODE! Felicitaciones 🏆</div>`
+    : `<div class="winner-generic">¡Felicitaciones al ganador del Prode Mundial 2026! 👏</div>`;
+
+  body.innerHTML = `
+    <div class="winner-trophy">🏆</div>
+    <div class="winner-kicker">Ganador del Prode</div>
+    <div class="winner-name">${_escHtml(w.display_name || w.username)}</div>
+    <div class="winner-tags">${tags}</div>
+    <div class="winner-points">${w.points}</div>
+    <div class="winner-points-label">Puntos</div>
+    <div class="winner-substats">🎯 ${w.correct_exact} exactos · ✅ ${w.correct_result} resultados · 📝 ${w.predicted_count} pronósticos</div>
+    ${extra}`;
+
+  overlay.hidden = false;
+  void overlay.offsetWidth;
+  overlay.classList.add('visible');
+
+  // Papelitos por encima del modal
+  try {
+    confetti({ intensity: 'big', palette: 'prode', z: 10000 });
+    setTimeout(() => confetti({ intensity: 'big', palette: 'prode', z: 10000 }), 1400);
+  } catch (e) {}
+
+  const closeBtn = document.getElementById('winnerModalClose');
+  function close() {
+    overlay.classList.remove('visible');
+    setTimeout(() => { overlay.hidden = true; }, 320);
+    document.removeEventListener('keydown', onKey);
+  }
+  function onKey(e) { if (e.key === 'Escape') close(); }
+  closeBtn?.addEventListener('click', close, { once: true });
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); }, { once: true });
+  document.addEventListener('keydown', onKey);
+}
+
 function showPromoModal() {
   if (_promoShown) return;
   const overlay = document.getElementById('promoModal');
@@ -5633,7 +5732,8 @@ function _handlePostLoginEffects() {
   if (state.currentUser && state.currentUser.must_change_password) {
     showForceChangePasswordModal();
   } else {
-    setTimeout(showPromoModal, 2500);
+    // Torneo terminado: felicitación al ganador del prode (reemplaza la publicidad).
+    setTimeout(showWinnerModal, 2500);
   }
 }
 
@@ -5707,7 +5807,7 @@ function showForceChangePasswordModal() {
       setTimeout(() => { overlay.hidden = true; }, 280);
       showToast('Contraseña actualizada ✓');
       form.reset();
-      setTimeout(showPromoModal, 1500);
+      setTimeout(showWinnerModal, 1500);
     } catch (err) {
       errBox.textContent = err.message || 'No se pudo cambiar la contraseña';
     } finally {
